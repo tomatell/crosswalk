@@ -52,6 +52,9 @@ class XWalkPlatformNotificationService
   void ClosePersistentNotification(
       content::BrowserContext* browser_context,
       int64_t persistent_notification_id) override {}
+  bool GetDisplayedPersistentNotifications(
+      content::BrowserContext* browser_context,
+      std::set<std::string>* displayed_notifications) override;
 
  private:
   friend struct DefaultSingletonTraits<XWalkPlatformNotificationService>;
