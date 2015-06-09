@@ -66,10 +66,12 @@ bool XWalkSSLHostStateDelegate::DidHostRunInsecureContent(
   return false;
 }
 
-void XWalkSSLHostStateDelegate::RevokeUserAllowExceptions(const std::string& host) {
+void XWalkSSLHostStateDelegate::RevokeUserAllowExceptions(
+    const std::string& host) {
 }
 
-bool XWalkSSLHostStateDelegate::HasAllowException(const std::string& host) const {
+bool XWalkSSLHostStateDelegate::HasAllowException(
+    const std::string& host) const {
   return false;
 }
 

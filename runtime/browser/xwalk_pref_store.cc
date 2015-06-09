@@ -38,7 +38,9 @@ bool XWalkPrefStore::IsInitializationComplete() const {
   return true;
 }
 
-void XWalkPrefStore::SetValue(const std::string& key, base::Value* value, uint32 flags) {
+void XWalkPrefStore::SetValue(const std::string& key,
+                              base::Value* value,
+                              uint32 flags) {
   DCHECK(value);
   if (prefs_.SetValue(key, value))
       ReportValueChanged(key, flags);

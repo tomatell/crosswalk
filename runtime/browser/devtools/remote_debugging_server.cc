@@ -4,6 +4,9 @@
 
 #include "xwalk/runtime/browser/devtools/remote_debugging_server.h"
 
+#include <map>
+#include <vector>
+
 #include "components/devtools_http_handler/devtools_http_handler.h"
 #include "components/devtools_http_handler/devtools_http_handler_delegate.h"
 #include "content/public/browser/devtools_agent_host.h"
@@ -86,7 +89,6 @@ std::string XWalkDevToolsHttpHandlerDelegate::GetDiscoveryPageHTML() {
 
 std::string XWalkDevToolsHttpHandlerDelegate::GetFrontendResource(
     const std::string& path) {
-  // TODO: need to return proper value
   return content::DevToolsFrontendHost::GetFrontendResource(path).as_string();
 }
 

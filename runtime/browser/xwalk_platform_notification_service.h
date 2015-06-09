@@ -6,6 +6,7 @@
 #ifndef XWALK_RUNTIME_BROWSER_XWALK_PLATFORM_NOTIFICATION_SERVICE_H_
 #define XWALK_RUNTIME_BROWSER_XWALK_PLATFORM_NOTIFICATION_SERVICE_H_
 
+#include <set>
 #include <string>
 
 #include "base/memory/singleton.h"
