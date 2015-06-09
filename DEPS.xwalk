@@ -55,6 +55,13 @@ solutions = [
         'https://cvs.khronos.org/svn/repos/registry/trunk/public/cl/api/1.2@'
            '28150',
 
+      # Temporarily roll ANGLE a few commits forward compared to Chromium
+      # 44.0.2403.30, as we need some fixes for Linux builds without X11 (a
+      # pure Ozone-Wayland build, for example).
+      # See https://code.google.com/p/angleproject/issues/detail?id=1011
+      'src/third_party/angle':
+        'https://chromium.googlesource.com/angle/angle.git@90d5f9b1f0114d0950bde63d61054b30dcd76eb3',
+
       # These directories are not relevant to Crosswalk and can be safely ignored
       # in a checkout. It avoids creating additional directories outside src/ that
       # are not used and also saves some bandwidth.

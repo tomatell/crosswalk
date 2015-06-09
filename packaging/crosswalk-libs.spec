@@ -34,7 +34,6 @@ Source:         crosswalk.tar
 Source1001:     crosswalk-libs.manifest
 Source1002:     print-chromium-deps.py
 Patch10:        crosswalk-do-not-look-for-gtk-dependencies-on-x11.patch
-Patch11:        crosswalk-conditional-x11-dependencies-in-angle.patch
 
 BuildRequires:  binutils-gold
 BuildRequires:  bison
@@ -114,8 +113,6 @@ cp -a src/xwalk/LICENSE LICENSE.xwalk
 %if !%{with wayland}
 %patch10
 %endif
-
-%patch11
 
 %build
 
