@@ -17,7 +17,7 @@ XWalkExternalAdapter::XWalkExternalAdapter()
 XWalkExternalAdapter::~XWalkExternalAdapter() {}
 
 XWalkExternalAdapter* XWalkExternalAdapter::GetInstance() {
-  return Singleton<XWalkExternalAdapter>::get();
+  return base::Singleton<XWalkExternalAdapter>::get();
 }
 
 XW_Extension XWalkExternalAdapter::GetNextXWExtension() {
@@ -77,6 +77,16 @@ const void* XWalkExternalAdapter::GetInterface(const char* name) {
       MessagingPostMessage
     };
     return &messagingInterface1;
+  }
+
+  if (!strcmp(name, XW_MESSAGING_INTERFACE_2)) {
+    static const XW_MessagingInterface_2 messagingInterface2 = {
+      MessagingRegister,
+      MessagingPostMessage,
+      MessagingRegisterBinaryMessageCallback,
+      MessagingPostBinaryMessage
+    };
+    return &messagingInterface2;
   }
 
   if (!strcmp(name, XW_INTERNAL_SYNC_MESSAGING_INTERFACE_1)) {

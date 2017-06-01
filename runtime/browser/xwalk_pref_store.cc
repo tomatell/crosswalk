@@ -5,7 +5,8 @@
 
 #include "xwalk/runtime/browser/xwalk_pref_store.h"
 
-#include "base/memory/scoped_ptr.h"
+#include <memory>
+
 #include "base/values.h"
 
 XWalkPrefStore::XWalkPrefStore() {}
@@ -39,19 +40,19 @@ bool XWalkPrefStore::IsInitializationComplete() const {
 }
 
 void XWalkPrefStore::SetValue(const std::string& key,
-                              base::Value* value,
-                              uint32 flags) {
+                              std::unique_ptr<base::Value> value,
+                              uint32_t flags) {
   DCHECK(value);
-  if (prefs_.SetValue(key, value))
+  if (prefs_.SetValue(key, std::move(value)))
       ReportValueChanged(key, flags);
 }
 
 void XWalkPrefStore::SetValueSilently(
-    const std::string& key, base::Value* value, uint32 flags) {
-  prefs_.SetValue(key, value);
+    const std::string& key, std::unique_ptr<base::Value> value, uint32_t flags) {
+  prefs_.SetValue(key, std::move(value));
 }
 
-void XWalkPrefStore::RemoveValue(const std::string& key, uint32 flags) {
+void XWalkPrefStore::RemoveValue(const std::string& key, uint32_t flags) {
   if (prefs_.RemoveValue(key))
     ReportValueChanged(key, flags);
 }
@@ -71,6 +72,7 @@ PersistentPrefStore::PrefReadError XWalkPrefStore::ReadPrefs() {
 void XWalkPrefStore::ReadPrefsAsync(ReadErrorDelegate* error_delegate_raw) {
 }
 
-void XWalkPrefStore::ReportValueChanged(const std::string& key, uint32 flags) {
+void XWalkPrefStore::ReportValueChanged(const std::string& key,
+                                        uint32_t flags) {
   FOR_EACH_OBSERVER(Observer, observers_, OnPrefValueChanged(key));
 }

@@ -7,13 +7,16 @@
 
 #include "base/callback_forward.h"
 #include "base/supports_user_data.h"
+#include "content/public/browser/client_certificate_delegate.h"
 #include "content/public/browser/javascript_dialog_manager.h"
+#include "net/ssl/ssl_cert_request_info.h"
 
 class GURL;
 class SkBitmap;
 
 namespace content {
 class DesktopNotificationDelegate;
+struct NotificationResources;
 struct PlatformNotificationData;
 class RenderFrameHost;
 class WebContents;
@@ -32,6 +35,7 @@ namespace xwalk {
 // native/ from browser/ layer.
 class XWalkContentsClientBridgeBase {
  public:
+  typedef base::Callback<void(net::X509Certificate*)> SelectCertificateCallback;
   // Adds the handler to the UserData registry.
   static void Associate(content::WebContents* web_contents,
                         XWalkContentsClientBridgeBase* handler);
@@ -45,6 +49,10 @@ class XWalkContentsClientBridgeBase {
       content::RenderFrameHost* render_frame_host);
 
   virtual ~XWalkContentsClientBridgeBase();
+
+  virtual void SelectClientCertificate(
+      net::SSLCertRequestInfo* cert_request_info,
+      std::unique_ptr<content::ClientCertificateDelegate> delegate) = 0;
 
   virtual void AllowCertificateError(int cert_error,
                                      net::X509Certificate* cert,
@@ -61,16 +69,19 @@ class XWalkContentsClientBridgeBase {
       = 0;
   virtual void RunBeforeUnloadDialog(
       const GURL& origin_url,
-      const base::string16& message_text,
       const content::JavaScriptDialogManager::DialogClosedCallback& callback)
       = 0;
   virtual void ShowNotification(
       const content::PlatformNotificationData& notification_data,
-      const SkBitmap& icon,
-      scoped_ptr<content::DesktopNotificationDelegate> delegate,
+      const content::NotificationResources& notification_resources,
+      std::unique_ptr<content::DesktopNotificationDelegate> delegate,
       base::Closure* cancel_callback)
       = 0;
   virtual void OnWebLayoutPageScaleFactorChanged(float page_scale_factor) = 0;
+  virtual bool ShouldOverrideUrlLoading(const base::string16& url,
+                                        bool has_user_gesture,
+                                        bool is_redirect,
+                                        bool is_main_frame) = 0;
 };
 
 }  // namespace xwalk

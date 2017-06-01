@@ -11,6 +11,8 @@
 #include "base/callback_forward.h"
 #include "base/threading/non_thread_safe.h"
 #include "content/public/browser/web_contents_observer.h"
+#include "ui/gfx/geometry/point_f.h"
+#include "ui/gfx/geometry/size_f.h"
 #include "xwalk/runtime/common/android/xwalk_hit_test_data.h"
 
 class GURL;
@@ -40,9 +42,10 @@ class XWalkRenderViewHostExt : public content::WebContentsObserver,
   void ClearCache();
 
   // Do a hit test at the view port coordinates and asynchronously update
-  // |last_hit_test_data_|. |view_x| and |view_y| are in density independent
+  // test_data_|. Width and height in |touch_area| are in density independent
   // pixels used by WebKit::WebView.
-  void RequestNewHitTestDataAt(int view_x, int view_y);
+  void RequestNewHitTestDataAt(const gfx::PointF& touch_center,
+                               const gfx::SizeF& touch_area);
 
   // Optimization to avoid unnecessary Java object creation on hit test.
   bool HasNewHitTestData() const;
@@ -67,6 +70,9 @@ class XWalkRenderViewHostExt : public content::WebContentsObserver,
   // Sets the white list for Cross-Origin access.
   void SetOriginAccessWhitelist(const std::string& base_url,
                                 const std::string& permissions);
+  // Sets the zoom factor for text only. Used in layout modes other than
+  // Text Autosizing.
+  void SetTextZoomFactor(float factor);
 
  private:
   // content::WebContentsObserver implementation.
@@ -76,12 +82,12 @@ class XWalkRenderViewHostExt : public content::WebContentsObserver,
       content::RenderFrameHost* render_frame_host,
       const content::LoadCommittedDetails& details,
       const content::FrameNavigateParams& params) override;
+  void OnPageScaleFactorChanged(float page_scale_factor) override;
   bool OnMessageReceived(const IPC::Message& message) override;
 
   void OnDocumentHasImagesResponse(int msg_id, bool has_images);
   void OnUpdateHitTestData(const XWalkHitTestData& hit_test_data);
   void OnPictureUpdated();
-  void OnPageScaleFactorChanged(float page_scale_factor);
 
   bool IsRenderViewReady() const;
 

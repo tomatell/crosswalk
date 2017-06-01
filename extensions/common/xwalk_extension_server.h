@@ -52,7 +52,6 @@ class XWalkExtensionServer : public IPC::Listener,
 
   // IPC::Listener Implementation.
   bool OnMessageReceived(const IPC::Message& message) override;
-  void OnChannelConnected(int32 peer_pid) override;
 
   // Different types of ExtensionServers are initialized with different
   // permission delegates: For out-of-process extensions the extension
@@ -60,10 +59,10 @@ class XWalkExtensionServer : public IPC::Listener,
   // IPC; For in-process extensions running in extension thread, we will
   // give a delegate that will do an async method call and for UI thread
   // extensions, doing synchronous request is not allowed.
-  void Initialize(IPC::Sender* sender);
+  void Initialize(IPC::ChannelProxy* channelProxy);
   bool Send(IPC::Message* msg);
 
-  bool RegisterExtension(scoped_ptr<XWalkExtension> extension);
+  bool RegisterExtension(std::unique_ptr<XWalkExtension> extension);
   bool ContainsExtension(const std::string& extension_name) const;
 
   void Invalidate();
@@ -94,18 +93,18 @@ class XWalkExtensionServer : public IPC::Listener,
       const base::ListValue& msg, IPC::Message* ipc_reply);
 
   void PostMessageToJSCallback(int64_t instance_id,
-                               scoped_ptr<base::Value> msg);
+                               std::unique_ptr<base::Value> msg);
 
   void SendSyncReplyToJSCallback(int64_t instance_id,
-                                 scoped_ptr<base::Value> reply);
+                                 std::unique_ptr<base::Value> reply);
 
   void DeleteInstanceMap();
 
   bool ValidateExtensionEntryPoints(
       const std::vector<std::string>& entry_points);
 
-  base::Lock sender_lock_;
-  IPC::Sender* sender_;
+  base::Lock channel_proxy_lock_;
+  IPC::ChannelProxy* channel_proxy_;
 
   typedef std::map<std::string, XWalkExtension*> ExtensionMap;
   ExtensionMap extensions_;
@@ -117,14 +116,12 @@ class XWalkExtensionServer : public IPC::Listener,
   typedef std::set<std::string> ExtensionSymbolsSet;
   ExtensionSymbolsSet extension_symbols_;
 
-  base::ProcessHandle renderer_process_handle_;
-
   XWalkExtension::PermissionsDelegate* permissions_delegate_;
 };
 
 std::vector<std::string> RegisterExternalExtensionsInDirectory(
     XWalkExtensionServer* server, const base::FilePath& dir,
-    scoped_ptr<base::ValueMap> runtime_variables);
+    std::unique_ptr<base::DictionaryValue::Storage> runtime_variables);
 
 bool ValidateExtensionNameForTesting(const std::string& extension_name);
 

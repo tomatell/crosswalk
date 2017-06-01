@@ -5,9 +5,12 @@
 #ifndef XWALK_RUNTIME_BROWSER_RUNTIME_GEOLOCATION_PERMISSION_CONTEXT_H_
 #define XWALK_RUNTIME_BROWSER_RUNTIME_GEOLOCATION_PERMISSION_CONTEXT_H_
 
+#include <string>
+
 #include "base/callback.h"
 #include "base/memory/ref_counted.h"
-#include "content/public/common/permission_status.mojom.h"
+#include "base/strings/string16.h"
+#include "third_party/WebKit/public/platform/modules/permissions/permission_status.mojom.h"
 
 class GURL;
 
@@ -26,6 +29,7 @@ class RuntimeGeolocationPermissionContext
   virtual void RequestGeolocationPermission(
       content::WebContents* web_contents,
       const GURL& requesting_frame,
+      const std::string& application_name,
       base::Callback<void(bool)> result_callback);
   virtual void CancelGeolocationPermissionRequest(
       content::WebContents* web_contents,
@@ -36,6 +40,9 @@ class RuntimeGeolocationPermissionContext
   friend class base::RefCountedThreadSafe<RuntimeGeolocationPermissionContext>;
 
  private:
+#if !defined(OS_ANDROID)
+  void OnPermissionRequestFinished(base::Callback<void(bool)>, bool success);
+#else
   void RequestGeolocationPermissionOnUIThread(
       content::WebContents* web_contents,
       const GURL& requesting_frame,
@@ -44,6 +51,7 @@ class RuntimeGeolocationPermissionContext
   void CancelGeolocationPermissionRequestOnUIThread(
       content::WebContents* web_contents,
       const GURL& requesting_frame);
+#endif
 };
 
 }  // namespace xwalk

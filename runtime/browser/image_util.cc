@@ -24,7 +24,8 @@ gfx::Image LoadImageFromFilePath(const base::FilePath& filename) {
   const base::FilePath::StringType kJPGFormat(FILE_PATH_LITERAL(".jpg"));
   const base::FilePath::StringType kJPEGFormat(FILE_PATH_LITERAL(".jpeg"));
 
-  if (EndsWith(filename.value(), kPNGFormat, false)) {
+  if (base::EndsWith(filename.value(), kPNGFormat,
+                     base::CompareCase::INSENSITIVE_ASCII)) {
     std::string contents;
     base::ReadFileToString(filename, &contents);
     return gfx::Image::CreateFrom1xPNGBytes(
@@ -32,8 +33,10 @@ gfx::Image LoadImageFromFilePath(const base::FilePath& filename) {
             contents.size());
   }
 
-  if (EndsWith(filename.value(), kJPGFormat, false) ||
-      EndsWith(filename.value(), kJPEGFormat, false)) {
+  if (base::EndsWith(filename.value(), kJPGFormat,
+                     base::CompareCase::INSENSITIVE_ASCII) ||
+      base::EndsWith(filename.value(), kJPEGFormat,
+                     base::CompareCase::INSENSITIVE_ASCII)) {
     std::string contents;
     base::ReadFileToString(filename, &contents);
     return gfx::ImageFrom1xJPEGEncodedData(
@@ -41,7 +44,8 @@ gfx::Image LoadImageFromFilePath(const base::FilePath& filename) {
         contents.size());
   }
 
-  if (EndsWith(filename.value(), kICOFormat, false)) {
+  if (base::EndsWith(filename.value(), kICOFormat,
+                     base::CompareCase::INSENSITIVE_ASCII)) {
 #if defined(OS_WIN)
     HICON icon = static_cast<HICON>(LoadImage(NULL,
                                     filename.value().c_str(),
@@ -53,7 +57,7 @@ gfx::Image LoadImageFromFilePath(const base::FilePath& filename) {
       return gfx::Image();
 
     gfx::Image image;
-    scoped_ptr<SkBitmap> bitmap(IconUtil::CreateSkBitmapFromHICON(icon));
+    std::unique_ptr<SkBitmap> bitmap(IconUtil::CreateSkBitmapFromHICON(icon));
     if (bitmap.get()) {
       gfx::ImageSkia image_skia = gfx::ImageSkia::CreateFrom1xBitmap(*bitmap);
       image = gfx::Image(image_skia);

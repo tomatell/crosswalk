@@ -11,6 +11,8 @@
 #include "ipc/ipc_message_macros.h"
 #include "ipc/ipc_platform_file.h"
 #include "third_party/skia/include/core/SkColor.h"
+#include "ui/gfx/geometry/point_f.h"
+#include "ui/gfx/geometry/size_f.h"
 
 // Singly-included section for enums and custom IPC traits.
 #ifndef XWALK_RUNTIME_COMMON_ANDROID_XWALK_RENDER_VIEW_MESSAGES_H_
@@ -51,8 +53,8 @@ IPC_MESSAGE_ROUTED1(XWalkViewMsg_DocumentHasImages, // NOLINT(*)
 // physical pixel values with the 0,0 at the top left of the current displayed
 // view (ie 0,0 is not the top left of the page if the page is scrolled).
 IPC_MESSAGE_ROUTED2(XWalkViewMsg_DoHitTest, // NOLINT(*)
-                    int /* view_x */,
-                    int /* view_y */)
+                    gfx::PointF /* touch_center */,
+                    gfx::SizeF /* touch_area */)
 
 // Enables receiving pictures from the renderer on every new frame.
 IPC_MESSAGE_ROUTED1(XWalkViewMsg_EnableCapturePictureCallback, // NOLINT(*)
@@ -89,6 +91,10 @@ IPC_MESSAGE_CONTROL2(XWalkViewMsg_SetOriginAccessWhitelist, // NOLINT(*)
 IPC_MESSAGE_ROUTED1(XWalkViewMsg_SetBackgroundColor, // NOLINT(*)
                     SkColor)
 
+// Set the text zoom factor
+IPC_MESSAGE_ROUTED1(XWalkViewMsg_SetTextZoomFactor, // NOLINT(*)
+                    float)
+
 //-----------------------------------------------------------------------------
 // RenderView messages
 // These are messages sent from the renderer to the browser process.
@@ -102,10 +108,6 @@ IPC_MESSAGE_ROUTED2(XWalkViewHostMsg_DocumentHasImagesResponse, // NOLINT(*)
 IPC_MESSAGE_ROUTED1(XWalkViewHostMsg_UpdateHitTestData, // NOLINT(*)
                     xwalk::XWalkHitTestData)
 
-// Sent whenever the page scale factor (as seen by RenderView) is changed.
-IPC_MESSAGE_ROUTED1(XWalkViewHostMsg_PageScaleFactorChanged, // NOLINT(*)
-                    float /* page_scale_factor */)
-
 // Notification that a new picture becomes available. It is only sent if
 // XWalkViewMsg_EnableCapturePictureCallback was previously enabled.
 IPC_MESSAGE_ROUTED0(XWalkViewHostMsg_PictureUpdated) // NOLINT(*)
@@ -115,4 +117,22 @@ IPC_MESSAGE_ROUTED0(XWalkViewHostMsg_PictureUpdated) // NOLINT(*)
 IPC_MESSAGE_ROUTED1(XWalkViewHostMsg_DidActivateAcceleratedCompositing, // NOLINT(*)
                     int /* input_handler_id */)
 
+// Sent immediately before a top level navigation is initiated within Blink.
+// There are some exclusions, the most important ones are it is not sent
+// when creating a popup window, and not sent for application initiated
+// navigations. See XWalkContentRendererClient::HandleNavigation for all
+// cornercases. This is sent before updating the NavigationController state
+// or creating a URLRequest for the main frame resource.
+IPC_SYNC_MESSAGE_CONTROL5_1(XWalkViewHostMsg_ShouldOverrideUrlLoading, // NOLINT(*)
+                            int /* render_frame_id id */,
+                            base::string16 /* in - url */,
+                            bool /* in - has_user_gesture */,
+                            bool /* in - is_redirect */,
+                            bool /* in - is_main_frame */,
+                            bool /* out - result */)
+
+// Sent when a subframe is created.
+IPC_MESSAGE_CONTROL2(XWalkViewHostMsg_SubFrameCreated, // NOLINT(*)
+                     int, /* parent_render_frame_id */
+                     int /* child_render_frame_id */)
 

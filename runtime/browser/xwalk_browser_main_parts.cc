@@ -13,14 +13,16 @@
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/message_loop/message_loop.h"
+#include "base/path_service.h"
 #include "base/strings/string_number_conversions.h"
+#include "base/strings/utf_string_conversions.h"
 #include "cc/base/switches.h"
+#include "components/devtools_http_handler/devtools_http_handler.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/common/content_switches.h"
 #include "content/public/common/main_function_params.h"
 #include "content/public/common/url_constants.h"
 #include "content/public/common/result_codes.h"
-#include "extensions/browser/extension_system.h"
 #include "net/base/filename_util.h"
 #include "ui/gl/gl_switches.h"
 #include "xwalk/application/browser/application.h"
@@ -30,6 +32,9 @@
 #if defined(USE_GTK_UI)
 #include "xwalk/runtime/browser/ui/gtk2_ui.h"
 #endif
+#include "xwalk/runtime/browser/devtools/xwalk_devtools_manager_delegate.h"
+#include "xwalk/runtime/browser/ui/xwalk_javascript_native_dialog_factory.h"
+#include "xwalk/runtime/browser/xwalk_browser_context.h"
 #include "xwalk/runtime/browser/xwalk_runner.h"
 #include "xwalk/runtime/common/xwalk_runtime_features.h"
 #include "xwalk/runtime/common/xwalk_switches.h"
@@ -44,14 +49,12 @@
 #include "ui/events/devices/x11/touch_factory_x11.h"
 #endif
 
-#if !defined(OS_CHROMEOS) && defined(USE_AURA) && defined(OS_LINUX)
-#include "ui/base/ime/input_method_initializer.h"
+#if defined(USE_AURA)
+#include "ui/wm/core/wm_state.h"
 #endif
 
-#if defined(USE_WEBUI_FILE_PICKER)
-#include "ui/wm/core/wm_state.h"
-#include "xwalk/runtime/browser/ui/linux_webui/linux_webui.h"
-#include "xwalk/runtime/browser/ui/webui/xwalk_web_ui_controller_factory.h"
+#if !defined(OS_CHROMEOS) && defined(USE_AURA) && defined(OS_LINUX)
+#include "ui/base/ime/input_method_initializer.h"
 #endif
 
 namespace {
@@ -89,7 +92,8 @@ XWalkBrowserMainParts::XWalkBrowserMainParts(
       extension_service_(NULL),
       startup_url_(url::kAboutBlankURL),
       parameters_(parameters),
-      run_default_message_loop_(true) {
+      run_default_message_loop_(true),
+      devtools_http_handler_(nullptr) {
 #if defined(OS_LINUX)
   // FIXME: We disable the setuid sandbox on Linux because we don't ship
   // the setuid binary. It is important to remember that the seccomp-bpf
@@ -105,32 +109,28 @@ XWalkBrowserMainParts::XWalkBrowserMainParts(
 }
 
 XWalkBrowserMainParts::~XWalkBrowserMainParts() {
+  DCHECK(!devtools_http_handler_);
 }
 
 void XWalkBrowserMainParts::PreMainMessageLoopStart() {
   base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
-  command_line->AppendSwitch(switches::kEnableViewport);
 
   command_line->AppendSwitch(xswitches::kEnableOverlayScrollbars);
 
   // Enable multithreaded GPU compositing of web content.
-  // This also enables pinch on Tizen.
   command_line->AppendSwitch(switches::kEnableThreadedCompositing);
 
-  // FIXME: Add comment why this is needed on Android and Tizen.
+  // FIXME: Add comment why this is needed on Android.
   command_line->AppendSwitch(switches::kAllowFileAccessFromFiles);
 
   // Enable SIMD.JS API by default.
-#if 0
-  std::string js_flags("--simd_object");
+  std::string js_flags("--harmony-simd");
   if (command_line->HasSwitch(switches::kJavaScriptFlags)) {
     js_flags += " ";
     js_flags +=
         command_line->GetSwitchValueASCII(switches::kJavaScriptFlags);
   }
   command_line->AppendSwitchASCII(switches::kJavaScriptFlags, js_flags);
-#endif
-
   startup_url_ = GetURLFromCommandLine(*command_line);
 }
 
@@ -140,14 +140,15 @@ void XWalkBrowserMainParts::PostMainMessageLoopStart() {
 void XWalkBrowserMainParts::PreEarlyInitialization() {
 #if !defined(OS_CHROMEOS) && defined(USE_AURA) && defined(OS_LINUX)
   ui::InitializeInputMethodForTesting();
-#if defined(USE_WEBUI_FILE_PICKER)
-  ui::LinuxShellDialog::SetInstance(BuildWebUI());
-  wm_state_.reset(new wm::WMState);
-#elif defined(USE_GTK_UI)
+#if defined(USE_GTK_UI)
   views::LinuxUI* gtk2_ui = BuildGtk2UI();
   gtk2_ui->Initialize();
   views::LinuxUI::SetInstance(gtk2_ui);
-#endif
+#endif  // defined(USE_GTK_UI)
+#endif  // !defined(OS_CHROMEOS) && defined(USE_AURA) && defined(OS_LINUX)
+
+#if defined(USE_AURA)
+  wm_state_.reset(new wm::WMState);
 #endif
 }
 
@@ -157,30 +158,8 @@ int XWalkBrowserMainParts::PreCreateThreads() {
 
 void XWalkBrowserMainParts::RegisterExternalExtensions() {
   base::CommandLine* cmd_line = base::CommandLine::ForCurrentProcess();
-
-#if defined(OS_TIZEN)
-  std::string value = cmd_line->GetSwitchValueASCII(
-      switches::kXWalkExternalExtensionsPath);
-
-#if defined(ARCH_CPU_64_BITS)
-  const char tec_path[] = "/usr/lib64/tizen-extensions-crosswalk";
-#else
-  const char tec_path[] = "/usr/lib/tizen-extensions-crosswalk";
-#endif
-
-  if (value.empty())
-    cmd_line->AppendSwitchASCII(switches::kXWalkExternalExtensionsPath,
-        tec_path);
-  else if (value != tec_path)
-    VLOG(0) << "Loading Tizen extensions from " << value << " rather than " <<
-        tec_path;
-
-  cmd_line->AppendSwitch(
-        switches::kXWalkAllowExternalExtensionsForRemoteSources);
-#else
   if (!cmd_line->HasSwitch(switches::kXWalkExternalExtensionsPath))
     return;
-#endif
 
   if (!cmd_line->HasSwitch(
           switches::kXWalkAllowExternalExtensionsForRemoteSources) &&
@@ -204,6 +183,10 @@ void XWalkBrowserMainParts::RegisterExternalExtensions() {
 void XWalkBrowserMainParts::PreMainMessageLoopRun() {
   xwalk_runner_->PreMainMessageLoopRun();
 
+  devtools_http_handler_.reset(
+      XWalkDevToolsManagerDelegate::CreateHttpHandler(
+          xwalk_runner_->browser_context()));
+
   extension_service_ = xwalk_runner_->extension_service();
 
   if (extension_service_)
@@ -220,6 +203,21 @@ void XWalkBrowserMainParts::PreMainMessageLoopRun() {
 #endif
 
   base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
+#if defined (OS_WIN)
+  // The manifest or startup URL was not specified, try to automatically load
+  // the manifest.json.
+  if (startup_url_.is_empty()) {
+    base::FilePath app_dir;
+    PathService::Get(base::DIR_MODULE, &app_dir);
+    DCHECK(!app_dir.empty());
+    base::FilePath path(base::UTF8ToUTF16("approot/manifest.json"));
+    if (!path.IsAbsolute()) {
+      // MakeAbsoluteFilePath is confused in Centennial.
+      path = app_dir.Append(path);
+    }
+    startup_url_ = GURL(net::FilePathToFileURL(path));
+  }
+#endif
   if (command_line->HasSwitch(switches::kRemoteDebuggingPort)) {
     std::string port_str =
         command_line->GetSwitchValueASCII(switches::kRemoteDebuggingPort);
@@ -228,12 +226,12 @@ void XWalkBrowserMainParts::PreMainMessageLoopRun() {
     xwalk_runner_->EnableRemoteDebugging(port);
   }
 
-  NativeAppWindow::Initialize();
-
-#if defined(USE_WEBUI_FILE_PICKER)
-  content::WebUIControllerFactory::RegisterFactory(
-      XWalkWebUIControllerFactory::GetInstance());
+#if !defined(OS_ANDROID)
+  if (command_line->HasSwitch(switches::kXWalkDisableSaveFormData))
+    xwalk_runner_->browser_context()->set_save_form_data(false);
 #endif
+
+  NativeAppWindow::Initialize();
 
   if (command_line->HasSwitch(switches::kListFeaturesFlags)) {
     XWalkRuntimeFeatures::GetInstance()->DumpFeaturesFlags();
@@ -253,6 +251,9 @@ void XWalkBrowserMainParts::PreMainMessageLoopRun() {
     delete parameters_.ui_task;
     run_default_message_loop_ = false;
   }
+#if defined(USE_AURA)
+  InstallXWalkJavaScriptNativeDialogFactory();
+#endif
 }
 
 bool XWalkBrowserMainParts::MainMessageLoopRun(int* result_code) {
@@ -261,6 +262,7 @@ bool XWalkBrowserMainParts::MainMessageLoopRun(int* result_code) {
 
 void XWalkBrowserMainParts::PostMainMessageLoopRun() {
   xwalk_runner_->PostMainMessageLoopRun();
+  devtools_http_handler_.reset();
 }
 
 void XWalkBrowserMainParts::CreateInternalExtensionsForUIThread(

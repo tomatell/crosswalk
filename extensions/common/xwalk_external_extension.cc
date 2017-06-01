@@ -17,14 +17,15 @@ namespace xwalk {
 namespace extensions {
 
 XWalkExternalExtension::XWalkExternalExtension(const base::FilePath& path)
-    : xw_extension_(0),
+    : library_path_(path),
+      xw_extension_(0),
       created_instance_callback_(NULL),
       destroyed_instance_callback_(NULL),
       shutdown_callback_(NULL),
       handle_msg_callback_(NULL),
       handle_sync_msg_callback_(NULL),
-      initialized_(false),
-      library_path_(path) {
+      handle_binary_msg_callback_(NULL),
+      initialized_(false) {
 }
 
 XWalkExternalExtension::~XWalkExternalExtension() {
@@ -119,6 +120,12 @@ void XWalkExternalExtension::MessagingRegister(
   handle_msg_callback_ = callback;
 }
 
+void XWalkExternalExtension::MessagingRegisterBinaryMessageCallback(
+    XW_HandleBinaryMessageCallback callback) {
+  RETURN_IF_INITIALIZED("Register from MessagingInterface_2");
+  handle_binary_msg_callback_ = callback;
+}
+
 void XWalkExternalExtension::SyncMessagingRegister(
     XW_HandleSyncMessageCallback callback) {
   RETURN_IF_INITIALIZED("Register from Internal_SyncMessagingInterface");
@@ -140,10 +147,10 @@ void XWalkExternalExtension::EntryPointsSetExtraJSEntryPoints(
 
 void XWalkExternalExtension::RuntimeGetStringVariable(const char* key,
     char* value, size_t value_len) {
-  const base::ValueMap::const_iterator it = runtime_variables_.find(key);
+  const base::DictionaryValue::Storage::const_iterator it = runtime_variables_.find(key);
   if (it != runtime_variables_.end()) {
     std::string json;
-    base::JSONWriter::Write(it->second, &json);
+    base::JSONWriter::Write(*(it->second), &json);
     strncpy(value, json.c_str(), value_len);
   } else {
     strncpy(value, "", 1);

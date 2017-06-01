@@ -17,6 +17,10 @@ extern const char kExperimentalFeatures[];
 extern const char kListFeaturesFlags[];
 extern const char kXWalkAllowExternalExtensionsForRemoteSources[];
 extern const char kXWalkDataPath[];
+#if !defined(OS_ANDROID)
+extern const char kXWalkEnableInspector[];
+extern const char kXWalkDisableSaveFormData[];
+#endif
 extern const char kAllowRunningInsecureContent[];
 extern const char kNoDisplayingInsecureContent[];
 
@@ -30,6 +34,8 @@ extern const char kPpapiFlashVersion[];
 #endif
 
 extern const char kUserDataDir[];
+
+extern const char kUnlimitedStorage[];
 
 }  // namespace switches
 

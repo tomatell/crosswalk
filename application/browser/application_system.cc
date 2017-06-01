@@ -19,10 +19,6 @@
 #include "xwalk/runtime/browser/xwalk_browser_context.h"
 #include "xwalk/runtime/common/xwalk_switches.h"
 
-#if defined(OS_TIZEN)
-#include "xwalk/application/browser/application_system_tizen.h"
-#endif
-
 namespace xwalk {
 namespace application {
 
@@ -35,15 +31,11 @@ ApplicationSystem::~ApplicationSystem() {
 }
 
 // static
-scoped_ptr<ApplicationSystem> ApplicationSystem::Create(
+std::unique_ptr<ApplicationSystem> ApplicationSystem::Create(
     XWalkBrowserContext* browser_context) {
-  scoped_ptr<ApplicationSystem> app_system;
-#if defined(OS_TIZEN)
-  app_system.reset(new ApplicationSystemTizen(browser_context));
-#else
+  std::unique_ptr<ApplicationSystem> app_system;
   app_system.reset(new ApplicationSystem(browser_context));
-#endif
-  return app_system.Pass();
+  return app_system;
 }
 
 bool ApplicationSystem::LaunchFromCommandLine(

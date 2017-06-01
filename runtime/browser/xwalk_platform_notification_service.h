@@ -11,9 +11,10 @@
 
 #include "base/memory/singleton.h"
 #include "content/public/browser/platform_notification_service.h"
+#include "third_party/WebKit/public/platform/modules/permissions/permission_status.mojom.h"
 
 namespace xwalk {
-#if defined(OS_LINUX) && defined(USE_LIBNOTIFY)
+#if defined(OS_LINUX) && defined(USE_LIBNOTIFY) || defined(OS_WIN)
 class XWalkNotificationManager;
 #endif
 
@@ -28,28 +29,28 @@ class XWalkPlatformNotificationService
   static XWalkPlatformNotificationService* GetInstance();
 
   // content::PlatformNotificationService implementation.
-  blink::WebNotificationPermission CheckPermissionOnUIThread(
+  blink::mojom::PermissionStatus CheckPermissionOnUIThread(
       content::BrowserContext* browser_context,
       const GURL& origin,
       int render_process_id) override;
   // content::PlatformNotificationService implementation.
-  blink::WebNotificationPermission CheckPermissionOnIOThread(
+  blink::mojom::PermissionStatus CheckPermissionOnIOThread(
       content::ResourceContext* resource_context,
       const GURL& origin,
       int render_process_id) override;
   void DisplayNotification(
       content::BrowserContext* browser_context,
       const GURL& origin,
-      const SkBitmap& icon,
       const content::PlatformNotificationData& notification_data,
-      scoped_ptr<content::DesktopNotificationDelegate> delegate,
+      const content::NotificationResources& notification_resources,
+      std::unique_ptr<content::DesktopNotificationDelegate> delegate,
       base::Closure* cancel_callback) override;
   void DisplayPersistentNotification(
       content::BrowserContext* browser_context,
-      int64 service_worker_registration_id,
+      int64_t service_worker_registration_id,
       const GURL& origin,
-      const SkBitmap& icon,
-      const content::PlatformNotificationData& notification_data) override {}
+      const content::PlatformNotificationData& notification_data,
+      const content::NotificationResources& notification_resources) override {}
   void ClosePersistentNotification(
       content::BrowserContext* browser_context,
       int64_t persistent_notification_id) override {}
@@ -58,13 +59,16 @@ class XWalkPlatformNotificationService
       std::set<std::string>* displayed_notifications) override;
 
  private:
-  friend struct DefaultSingletonTraits<XWalkPlatformNotificationService>;
+  friend struct base::DefaultSingletonTraits<XWalkPlatformNotificationService>;
 
   XWalkPlatformNotificationService();
   ~XWalkPlatformNotificationService() override;
 
 #if defined(OS_LINUX) && defined(USE_LIBNOTIFY)
-  scoped_ptr<XWalkNotificationManager> notification_manager_linux_;
+  std::unique_ptr<XWalkNotificationManager> notification_manager_linux_;
+#endif
+#if defined(OS_WIN)
+  std::unique_ptr<XWalkNotificationManager> notification_manager_win_;
 #endif
 };
 

@@ -73,8 +73,8 @@ net::URLRequestJob* XWalkURLRequestJobFactory::MaybeInterceptResponse(
 
 bool XWalkURLRequestJobFactory::SetProtocolHandler(
     const std::string& scheme,
-    ProtocolHandler* protocol_handler) {
-  return next_factory_->SetProtocolHandler(scheme, protocol_handler);
+    std::unique_ptr<ProtocolHandler> protocol_handler) {
+  return next_factory_->SetProtocolHandler(scheme, std::move(protocol_handler));
 }
 
 bool XWalkURLRequestJobFactory::IsSafeRedirectTarget(

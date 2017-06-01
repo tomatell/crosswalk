@@ -1,5 +1,3 @@
-#!/usr/bin/env python
-
 # Copyright (c) 2014 Intel Corporation. All rights reserved.
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
@@ -85,6 +83,7 @@ class InternalJavaFileData(object):
     self._imports = []
     self._enums = {}
     self._package_name = ''
+    self._need_default_constructor = True
 
   @property
   def class_name(self):
@@ -130,6 +129,10 @@ class InternalJavaFileData(object):
   def package_name(self):
     return self._package_name
 
+  @property
+  def need_default_constructor(self):
+    return self._need_default_constructor
+
   def GetJavaData(self, clazz):
     return self._class_loader.GetJavaData(clazz)
 
@@ -168,6 +171,7 @@ class InternalJavaFileData(object):
       # Determine whether the import rule should be ignored for generated code.
       # TODO: Currently we only use a blacklist to filter the import rule.
       if imported.startswith('org.xwalk.core.internal') or \
+          imported.startswith('org.xwalk.core') or \
           imported.startswith('org.chromium'):
         continue
       self._imports.append(imported)
@@ -212,6 +216,7 @@ class InternalJavaFileData(object):
       create_internally = match.group('create_internally')
       if create_internally == 'true':
         self._class_annotations['createInternally'] = True
+        self._need_default_constructor = False
       elif create_internally == 'false':
         self._class_annotations['createInternally'] = False
 
@@ -230,6 +235,7 @@ class InternalJavaFileData(object):
       no_instance = match.group('no_instance')
       if no_instance == 'true':
         self._class_annotations['noInstance'] = True
+        self._need_default_constructor = False
       elif no_instance == 'false':
         self._class_annotations['noInstance'] = False
 
@@ -257,8 +263,10 @@ class InternalJavaFileData(object):
   def ExtractMethods(self, java_content):
     constructor_re = re.compile(
         '(?P<method_doc>(\n\s*/\*\*.*\n(\s+\*(.)*\n)+\s+\*/\s*)?)\n'
+        '(?P<method_deprecated1>\s*@Deprecated\s*\n)?'
         '\s*@XWalkAPI\(?'
-        '(?P<method_annotation>[a-zA-Z0-9\$%,\s\(\)\{\};._"=]*)\)?'
+        '(?P<method_annotation>[a-zA-Z0-9\$\!%,\s\(\)\{\}\\\\;._"=]*)\)?'
+        '(?P<method_deprecated2>\s*@Deprecated\s*\n)?'
         '\s*public\s(?P<method_name>[a-zA-Z0-9]+)\('
         '(?P<method_params>[a-zA-Z0-9\s,\[\]\>\<]*)\)')
     for match in re.finditer(constructor_re, java_content):
@@ -266,21 +274,27 @@ class InternalJavaFileData(object):
       method_name = match.group('method_name')
       method_params = match.group('method_params')
       method_doc = match.group('method_doc')
+      method_deprecated1 = match.group('method_deprecated1')
+      method_deprecated2 = match.group('method_deprecated2')
       method = Method(
           self._class_name,
           self._class_loader,
           True, # is_constructor
           False, # is_static
           False, # is_abstract
+          method_deprecated1 != None or method_deprecated2 != None,
           method_name, None,
           method_params, method_annotation, method_doc)
       self._methods.append(method)
+      self._need_default_constructor = False
 
     method_re = re.compile(
         '(?P<method_doc>(\n\s*/\*\*.*\n(\s+\*(.)*\n)+\s+\*/\s*)?)\n'
+        '(?P<method_deprecated1>\s*@Deprecated\s*\n)?'
         '\s*@XWalkAPI\(?'
         '(?P<method_annotation>[a-zA-Z0-9%,\s\(\)\{\};._"=]*)\)?'
-        '\s*public\s+(?P<method_return>[a-zA-Z0-9]+)\s+'
+        '(?P<method_deprecated2>\s*@Deprecated\s*\n)?'
+        '\s*public\s+(?P<method_return>[a-zA-Z0-9]+(\<[a-zA-Z0-9]+,\s[a-zA-Z0-9]+\>)*(\[\s*\])*)\s+'
         '(?P<method_name>[a-zA-Z0-9]+)\('
         '(?P<method_params>[a-zA-Z0-9\s,\]\[\<\>]*)\)')
     for match in re.finditer(method_re, java_content):
@@ -289,12 +303,15 @@ class InternalJavaFileData(object):
       method_params = match.group('method_params')
       method_return = match.group('method_return')
       method_doc = match.group('method_doc')
+      method_deprecated1 = match.group('method_deprecated1')
+      method_deprecated2 = match.group('method_deprecated2')
       method = Method(
           self._class_name,
           self._class_loader,
           False, # is_constructor
           False, # is_static
           False, # is_abstract
+          method_deprecated1 != None or method_deprecated2 != None,
           method_name, method_return, method_params,
           method_annotation, method_doc)
       self._methods.append(method)
@@ -319,6 +336,7 @@ class InternalJavaFileData(object):
           False, # is_constructor
           True, # is_static
           False, # is_abstract
+          False,
           method_name, method_return, method_params,
           method_annotation, method_doc)
       self._methods.append(method)
@@ -343,6 +361,7 @@ class InternalJavaFileData(object):
           False, # is_constructor
           False, # is_static
           True, # is_abstract
+          False,
           method_name, method_return, method_params,
           method_annotation, method_doc)
       self._methods.append(method)
@@ -421,6 +440,12 @@ class InternalJavaFileData(object):
                'BRIDGE_TYPE': self.GetJavaData(clazz).bridge_name,
                'INTERNAL_VAR': var if clazz == self._class_name else\
                                    '(%s) %s' % (clazz, var)}
+      var = typed_var_template.substitute(value)
+    else:
+      typed_var_template = Template('(${VAR} instanceof ${BRIDGE_TYPE} ?'\
+          ' ((${BRIDGE_TYPE}) ${VAR} ) : null)')
+      value = {'VAR': var,
+               'BRIDGE_TYPE': self.GetJavaData(clazz).bridge_name}
       var = typed_var_template.substitute(value)
     return var
 

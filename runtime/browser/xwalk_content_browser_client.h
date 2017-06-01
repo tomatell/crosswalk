@@ -5,6 +5,7 @@
 #ifndef XWALK_RUNTIME_BROWSER_XWALK_CONTENT_BROWSER_CLIENT_H_
 #define XWALK_RUNTIME_BROWSER_XWALK_CONTENT_BROWSER_CLIENT_H_
 
+#include <map>
 #include <string>
 #include <vector>
 
@@ -43,21 +44,11 @@ class XWalkContentBrowserClient : public content::ContentBrowserClient {
   // ContentBrowserClient overrides.
   content::BrowserMainParts* CreateBrowserMainParts(
       const content::MainFunctionParams& parameters) override;
-  net::URLRequestContextGetter* CreateRequestContext(
-      content::BrowserContext* browser_context,
-      content::ProtocolHandlerMap* protocol_handlers,
-      content::URLRequestInterceptorScopedVector request_interceptors) override;
-  net::URLRequestContextGetter* CreateRequestContextForStoragePartition(
-      content::BrowserContext* browser_context,
-      const base::FilePath& partition_path,
-      bool in_memory,
-      content::ProtocolHandlerMap* protocol_handlers,
-      content::URLRequestInterceptorScopedVector request_interceptors) override;
   void AppendExtraCommandLineSwitches(base::CommandLine* command_line,
                                       int child_process_id) override;
   content::QuotaPermissionContext*
       CreateQuotaPermissionContext() override;
-  content::AccessTokenStore* CreateAccessTokenStore() override;
+  content::GeolocationDelegate* CreateGeolocationDelegate() override;
   content::WebContentsViewDelegate* GetWebContentsViewDelegate(
       content::WebContents* web_contents) override;
   void RenderProcessWillLaunch(
@@ -76,11 +67,10 @@ class XWalkContentBrowserClient : public content::ContentBrowserClient {
                       content::ResourceContext* context,
                       int render_process_id,
                       int render_frame_id,
-                      net::CookieOptions* options) override;
+                      const net::CookieOptions& options) override;
 
   void AllowCertificateError(
-      int render_process_id,
-      int render_frame_id,
+      content::WebContents* web_contents,
       int cert_error,
       const net::SSLInfo& ssl_info,
       const GURL& request_url,
@@ -90,6 +80,11 @@ class XWalkContentBrowserClient : public content::ContentBrowserClient {
       bool expired_previous_decision,
       const base::Callback<void(bool)>& callback, // NOLINT
       content::CertificateRequestResultType* result) override;
+
+  void SelectClientCertificate(
+      content::WebContents* web_contents,
+      net::SSLCertRequestInfo* cert_request_info,
+      std::unique_ptr<content::ClientCertificateDelegate> delegate) override;
 
   content::SpeechRecognitionManagerDelegate*
       CreateSpeechRecognitionManagerDelegate() override;
@@ -110,7 +105,8 @@ class XWalkContentBrowserClient : public content::ContentBrowserClient {
                        bool opener_suppressed,
                        content::ResourceContext* context,
                        int render_process_id,
-                       int opener_id,
+                       int opener_render_view_id,
+                       int opener_render_frame_id,
                        bool* no_javascript_access) override;
 #endif
 
@@ -119,11 +115,9 @@ class XWalkContentBrowserClient : public content::ContentBrowserClient {
   content::BrowserPpapiHost* GetExternalBrowserPpapiHost(
       int plugin_process_id) override;
 
-#if defined(OS_ANDROID) || defined(OS_TIZEN)  || defined(OS_LINUX)
+#if defined(OS_ANDROID) || defined(OS_LINUX)
   void ResourceDispatcherHostCreated() override;
 #endif
-
-  content::LocationProvider* OverrideSystemLocationProvider() override;
 
   void GetStoragePartitionConfigForSite(
       content::BrowserContext* browser_context,
@@ -133,17 +127,26 @@ class XWalkContentBrowserClient : public content::ContentBrowserClient {
       std::string* partition_name,
       bool* in_memory) override;
 
-  content::DevToolsManagerDelegate*
-      GetDevToolsManagerDelegate() override;
+  void GetAdditionalAllowedSchemesForFileSystem(
+      std::vector<std::string>* additional_schemes) override;
 
-#if defined(OS_POSIX) && !defined(OS_MACOSX)
+#if defined(OS_ANDROID)
+  virtual void GetAdditionalMappedFilesForChildProcess(
+      const base::CommandLine& command_line,
+      int child_process_id,
+      content::FileDescriptorInfo* mappings,
+      std::map<int, base::MemoryMappedFile::Region>* regions) override {}
+#elif defined(OS_POSIX) && !defined(OS_MACOSX)
   void GetAdditionalMappedFilesForChildProcess(
       const base::CommandLine& command_line,
       int child_process_id,
-      content::FileDescriptorInfo* mappings) override;
+      content::FileDescriptorInfo* mappings) override {}
 #endif
 
   XWalkBrowserMainParts* main_parts() { return main_parts_; }
+
+  content::PresentationServiceDelegate* GetPresentationServiceDelegate(
+      content::WebContents* web_contents) override;
 
 #if defined(OS_ANDROID)
   RuntimeResourceDispatcherHostDelegate* resource_dispatcher_host_delegate() {
@@ -153,19 +156,22 @@ class XWalkContentBrowserClient : public content::ContentBrowserClient {
 
   std::string GetApplicationLocale() override;
 
+#if defined(OS_ANDROID)
+  ScopedVector<content::NavigationThrottle> CreateThrottlesForNavigation(
+      content::NavigationHandle* navigation_handle) override;
+#endif
+
  private:
   XWalkRunner* xwalk_runner_;
-  net::URLRequestContextGetter* url_request_context_getter_;
-
+  std::unique_ptr<content::ClientCertificateDelegate> delegate_;
 #if defined(OS_POSIX) && !defined(OS_MACOSX)
   base::ScopedFD v8_natives_fd_;
   base::ScopedFD v8_snapshot_fd_;
 #endif
 
   XWalkBrowserMainParts* main_parts_;
-  XWalkBrowserContext* browser_context_;
 
-  scoped_ptr<RuntimeResourceDispatcherHostDelegate>
+  std::unique_ptr<RuntimeResourceDispatcherHostDelegate>
       resource_dispatcher_host_delegate_;
 
   DISALLOW_COPY_AND_ASSIGN(XWalkContentBrowserClient);

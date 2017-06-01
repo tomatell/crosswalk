@@ -10,6 +10,7 @@
 #include "base/json/json_reader.h"
 #include "base/logging.h"
 #include "base/macros.h"
+#include "base/memory/ptr_util.h"
 #include "base/message_loop/message_loop.h"
 #include "base/stl_util.h"
 #include "base/strings/string_split.h"
@@ -18,19 +19,15 @@
 #include "content/public/browser/web_contents.h"
 #include "content/public/browser/render_process_host.h"
 #include "content/public/browser/site_instance.h"
-#include "net/base/net_util.h"
 #include "xwalk/application/common/application_manifest_constants.h"
 #include "xwalk/application/common/constants.h"
 #include "xwalk/application/common/manifest_handlers/warp_handler.h"
 #include "xwalk/application/common/package/wgt_package.h"
 #include "xwalk/runtime/browser/runtime.h"
+#include "xwalk/runtime/browser/runtime_platform_util.h"
 #include "xwalk/runtime/browser/runtime_ui_delegate.h"
 #include "xwalk/runtime/browser/xwalk_browser_context.h"
 #include "xwalk/runtime/browser/xwalk_runner.h"
-
-#if defined(OS_TIZEN)
-#include "xwalk/application/browser/application_tizen.h"
-#endif
 
 using content::RenderProcessHost;
 
@@ -73,25 +70,22 @@ GURL GetDefaultWidgetEntryPage(
 
 namespace application {
 
-scoped_ptr<Application> Application::Create(
+std::unique_ptr<Application> Application::Create(
     scoped_refptr<ApplicationData> data,
     XWalkBrowserContext* context) {
-#if defined(OS_TIZEN)
-  return make_scoped_ptr<Application>(new ApplicationTizen(data, context));
-#else
-  return make_scoped_ptr(new Application(data, context));
-#endif
+  return base::WrapUnique(new Application(data, context));
 }
 
 Application::Application(
     scoped_refptr<ApplicationData> data,
     XWalkBrowserContext* browser_context)
-    : data_(data),
+    : browser_context_(browser_context),
+      data_(data),
       render_process_host_(NULL),
       web_contents_(NULL),
       security_mode_enabled_(false),
-      browser_context_(browser_context),
       observer_(NULL),
+      security_policy_(ApplicationSecurityPolicy::Create(data_)),
       weak_factory_(this) {
   DCHECK(browser_context_);
   DCHECK(data_.get());
@@ -105,20 +99,6 @@ Application::~Application() {
 
 template<>
 GURL Application::GetStartURL<Manifest::TYPE_WIDGET>() const {
-#if defined(OS_TIZEN)
-  if (data_->IsHostedApp()) {
-    std::string source;
-    GURL url;
-    if (data_->GetManifest()->GetString(
-        widget_keys::kLaunchLocalPathKey, &source)) {
-      url = GURL(source);
-    }
-
-    if (url.is_valid() && url.SchemeIsHTTPOrHTTPS())
-      return url;
-  }
-#endif
-
   GURL url = GetAbsoluteURLFromKey(widget_keys::kLaunchLocalPathKey);
   if (url.is_valid())
     return url;
@@ -183,7 +163,7 @@ GURL Application::GetStartURL(Manifest::Type type) const {
 }
 
 template<>
-void Application::GetWindowShowState<Manifest::TYPE_WIDGET>(
+void Application::SetWindowShowState<Manifest::TYPE_WIDGET>(
     NativeAppWindow::CreateParams* params) {
   const Manifest* manifest = data_->GetManifest();
   std::string view_modes_string;
@@ -192,31 +172,31 @@ void Application::GetWindowShowState<Manifest::TYPE_WIDGET>(
     // FIXME: ATM only 'fullscreen' and 'windowed' values are supported.
     // If the first user prefererence is 'fullscreen', set window show state
     // FULLSCREEN, otherwise set the default window show state.
-    std::vector<std::string> modes;
-    base::SplitString(view_modes_string, ' ', &modes);
+    std::vector<std::string> modes = base::SplitString(
+        view_modes_string, " ", base::TRIM_WHITESPACE, base::SPLIT_WANT_ALL);
     if (!modes.empty() && modes[0] == "fullscreen")
       params->state = ui::SHOW_STATE_FULLSCREEN;
   }
 }
 
 template<>
-void Application::GetWindowShowState<Manifest::TYPE_MANIFEST>(
+void Application::SetWindowShowState<Manifest::TYPE_MANIFEST>(
     NativeAppWindow::CreateParams* params) {
   const Manifest* manifest = data_->GetManifest();
   std::string display_string;
 
   // FIXME: As we do not support browser mode, the default fallback will be
   // minimal-ui mode.
-  params->mode = blink::WebDisplayModeMinimalUi;
+  params->display_mode = blink::WebDisplayModeMinimalUi;
   params->state = ui::SHOW_STATE_DEFAULT;
   if (!manifest->GetString(keys::kDisplay, &display_string))
     return;
 
   if (display_string == values::kDisplayModeFullscreen) {
-    params->mode = blink::WebDisplayModeFullscreen;
+    params->display_mode = blink::WebDisplayModeFullscreen;
     params->state = ui::SHOW_STATE_FULLSCREEN;
   } else if (display_string == values::kDisplayModeStandalone) {
-    params->mode = blink::WebDisplayModeStandalone;
+    params->display_mode = blink::WebDisplayModeStandalone;
   }
 }
 
@@ -239,14 +219,16 @@ bool Application::Launch() {
   runtimes_.push_back(runtime);
   render_process_host_ = runtime->GetRenderProcessHost();
   render_process_host_->AddObserver(this);
+  if (security_policy_)
+    security_policy_->EnforceForRenderer(render_process_host_);
+
   web_contents_ = runtime->web_contents();
-  InitSecurityPolicy();
   runtime->LoadURL(url);
 
   NativeAppWindow::CreateParams params;
   data_->manifest_type() == Manifest::TYPE_WIDGET ?
-      GetWindowShowState<Manifest::TYPE_WIDGET>(&params) :
-      GetWindowShowState<Manifest::TYPE_MANIFEST>(&params);
+      SetWindowShowState<Manifest::TYPE_WIDGET>(&params) :
+      SetWindowShowState<Manifest::TYPE_MANIFEST>(&params);
 
   params.bounds = data_->window_bounds();
   params.minimum_size.set_width(data_->window_min_size().width());
@@ -258,6 +240,13 @@ bool Application::Launch() {
   // Only the first runtime can have a launch screen.
   params.splash_screen_path = GetSplashScreenPath();
   runtime->set_ui_delegate(RuntimeUIDelegate::Create(runtime, params));
+
+  // Set preferred orientation just before showing the UI.
+  std::string orientation;
+  if (data_->GetManifest()->GetString(keys::kOrientationKey, &orientation)
+    && !orientation.empty())
+    platform_util::SetPreferredScreenOrientation(orientation);
+
   runtime->Show();
 
   return true;
@@ -303,6 +292,10 @@ void Application::OnRuntimeClosed(Runtime* runtime) {
                    weak_factory_.GetWeakPtr()));
 }
 
+void Application::OnApplicationExitRequested(Runtime* runtime) {
+  Terminate();
+}
+
 void Application::RenderProcessExited(RenderProcessHost* host,
                                       base::TerminationStatus,
                                       int) {
@@ -333,8 +326,7 @@ bool Application::RegisterPermissions(const std::string& extension_name,
   // TODO(Bai): Parse the permission table and fill in the name_perm_map_
   // The perm_table format is a simple JSON string, like
   // [{"permission_name":"echo","apis":["add","remove","get"]}]
-  scoped_ptr<base::Value> root;
-  root.reset(base::JSONReader().ReadToValue(perm_table));
+  std::unique_ptr<base::Value> root = base::JSONReader().ReadToValue(perm_table);
   if (root.get() == NULL || !root->IsType(base::Value::TYPE_LIST))
     return false;
 
@@ -348,7 +340,7 @@ bool Application::RegisterPermissions(const std::string& extension_name,
       return false;
 
     base::DictionaryValue* dict_val =
-        static_cast<base::DictionaryValue*>(*iter);
+        static_cast<base::DictionaryValue*>(iter->get());
     std::string permission_name;
     if (!dict_val->GetString("permission_name", &permission_name))
       return false;
@@ -411,17 +403,6 @@ bool Application::SetPermission(PermissionType type,
 
   NOTREACHED();
   return false;
-}
-
-void Application::InitSecurityPolicy() {
-  // CSP policy takes precedence over WARP.
-  if (data_->HasCSPDefined())
-    security_policy_.reset(new ApplicationSecurityPolicyCSP(this));
-  else if (data_->manifest_type() == Manifest::TYPE_WIDGET)
-    security_policy_.reset(new ApplicationSecurityPolicyWARP(this));
-
-  if (security_policy_)
-    security_policy_->Enforce();
 }
 
 bool Application::CanRequestURL(const GURL& url) const {

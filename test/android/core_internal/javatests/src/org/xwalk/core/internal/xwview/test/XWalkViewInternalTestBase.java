@@ -32,13 +32,17 @@ import org.chromium.content.browser.test.util.Criteria;
 import org.chromium.content.browser.test.util.CriteriaHelper;
 import org.chromium.ui.gfx.DeviceDisplayInfo;
 
+import org.xwalk.core.internal.CustomViewCallbackInternal;
+import org.xwalk.core.internal.XWalkHttpAuthHandlerInternal;
 import org.xwalk.core.internal.XWalkNavigationHistoryInternal;
 import org.xwalk.core.internal.XWalkNavigationItemInternal;
 import org.xwalk.core.internal.XWalkResourceClientInternal;
-import org.xwalk.core.internal.XWalkSettings;
+import org.xwalk.core.internal.XWalkSettingsInternal;
 import org.xwalk.core.internal.XWalkUIClientInternal;
 import org.xwalk.core.internal.XWalkViewInternal;
 import org.xwalk.core.internal.XWalkWebChromeClient;
+import org.xwalk.core.internal.XWalkWebResourceRequestInternal;
+import org.xwalk.core.internal.XWalkWebResourceResponseInternal;
 
 import static org.chromium.base.test.util.ScalableTimeout.scaleTimeout;
 
@@ -53,6 +57,13 @@ public class XWalkViewInternalTestBase
 
     class TestXWalkUIClientInternalBase extends XWalkUIClientInternal {
         TestHelperBridge mInnerContentsClient;
+        private CallbackHelper mOnShowCustomViewCallbackHelper = new CallbackHelper();
+        private CallbackHelper mOnHideCustomViewCallbackHelper = new CallbackHelper();
+
+        private Activity mActivity = getActivity();
+        private View mCustomView;
+        private CustomViewCallbackInternal mExitCallback;
+
         public TestXWalkUIClientInternalBase(TestHelperBridge client) {
             super(getXWalkView());
             mInnerContentsClient = client;
@@ -71,6 +82,48 @@ public class XWalkViewInternalTestBase
         @Override
         public void onReceivedTitle(XWalkViewInternal view, String title) {
             mInnerContentsClient.onTitleChanged(title);
+        }
+
+        @Override
+        public void onShowCustomView(View view, CustomViewCallbackInternal callback) {
+            mCustomView = view;
+            mExitCallback = callback;
+            mActivity.getWindow().setFlags(
+                    WindowManager.LayoutParams.FLAG_FULLSCREEN,
+                    WindowManager.LayoutParams.FLAG_FULLSCREEN);
+
+            mActivity.getWindow().addContentView(view,
+                    new FrameLayout.LayoutParams(
+                            ViewGroup.LayoutParams.MATCH_PARENT,
+                            ViewGroup.LayoutParams.MATCH_PARENT,
+                            Gravity.CENTER));
+            mOnShowCustomViewCallbackHelper.notifyCalled();
+        }
+
+        @Override
+        public void onHideCustomView() {
+            mActivity.getWindow().clearFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN);
+            mOnHideCustomViewCallbackHelper.notifyCalled();
+        }
+
+        public CustomViewCallbackInternal getExitCallback() {
+            return mExitCallback;
+        }
+
+        public View getCustomView() {
+            return mCustomView;
+        }
+
+        public boolean wasCustomViewShownCalled() {
+            return mOnShowCustomViewCallbackHelper.getCallCount() > 0;
+        }
+
+        public void waitForCustomViewShown() throws TimeoutException, InterruptedException {
+            mOnShowCustomViewCallbackHelper.waitForCallback(0, 1, WAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+        }
+
+        public void waitForCustomViewHidden() throws InterruptedException, TimeoutException {
+            mOnHideCustomViewCallbackHelper.waitForCallback(0, 1, WAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS);
         }
     }
 
@@ -99,70 +152,15 @@ public class XWalkViewInternalTestBase
         }
 
         @Override
-        public WebResourceResponse shouldInterceptLoadRequest(XWalkViewInternal view,
-                String url) {
-            return mInnerContentsClient.shouldInterceptLoadRequest(url);
+        public XWalkWebResourceResponseInternal shouldInterceptLoadRequest(XWalkViewInternal view,
+                XWalkWebResourceRequestInternal request) {
+            return mInnerContentsClient.shouldInterceptLoadRequest(request.getUrl().toString());
         }
     }
 
     class TestXWalkResourceClient extends TestXWalkResourceClientBase {
         public TestXWalkResourceClient() {
             super(mTestHelperBridge);
-        }
-    }
-
-    class TestXWalkWebChromeClientBase extends XWalkWebChromeClient {
-        private CallbackHelper mOnShowCustomViewCallbackHelper = new CallbackHelper();
-        private CallbackHelper mOnHideCustomViewCallbackHelper = new CallbackHelper();
-
-        private Activity mActivity = getActivity();
-        private View mCustomView;
-        private XWalkWebChromeClient.CustomViewCallback mExitCallback;
-
-        public TestXWalkWebChromeClientBase() {
-            super(mXWalkViewInternal);
-        }
-
-        @Override
-        public void onShowCustomView(View view, XWalkWebChromeClient.CustomViewCallback callback) {
-            mCustomView = view;
-            mExitCallback = callback;
-            mActivity.getWindow().setFlags(
-                    WindowManager.LayoutParams.FLAG_FULLSCREEN,
-                    WindowManager.LayoutParams.FLAG_FULLSCREEN);
-
-            mActivity.getWindow().addContentView(view,
-                    new FrameLayout.LayoutParams(
-                            ViewGroup.LayoutParams.MATCH_PARENT,
-                            ViewGroup.LayoutParams.MATCH_PARENT,
-                            Gravity.CENTER));
-            mOnShowCustomViewCallbackHelper.notifyCalled();
-        }
-
-        @Override
-        public void onHideCustomView() {
-            mActivity.getWindow().clearFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN);
-            mOnHideCustomViewCallbackHelper.notifyCalled();
-        }
-
-        public XWalkWebChromeClient.CustomViewCallback getExitCallback() {
-            return mExitCallback;
-        }
-
-        public View getCustomView() {
-            return mCustomView;
-        }
-
-        public boolean wasCustomViewShownCalled() {
-            return mOnShowCustomViewCallbackHelper.getCallCount() > 0;
-        }
-
-        public void waitForCustomViewShown() throws TimeoutException, InterruptedException {
-            mOnShowCustomViewCallbackHelper.waitForCallback(0, 1, WAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS);
-        }
-
-        public void waitForCustomViewHidden() throws InterruptedException, TimeoutException {
-            mOnHideCustomViewCallbackHelper.waitForCallback(0, 1, WAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS);
         }
     }
 
@@ -180,15 +178,6 @@ public class XWalkViewInternalTestBase
             @Override
             public void run() {
                 getXWalkView().setResourceClient(client);
-            }
-        });
-    }
-
-    void setXWalkWebChromeClient(final TestXWalkWebChromeClientBase client) {
-        getInstrumentation().runOnMainSync(new Runnable() {
-            @Override
-            public void run() {
-                mXWalkViewInternal.setXWalkWebChromeClient(client);
             }
         });
     }
@@ -245,15 +234,11 @@ public class XWalkViewInternalTestBase
         });
     }
 
-    protected boolean pollOnUiThread(final Callable<Boolean> callable) throws Exception {
-        return CriteriaHelper.pollForCriteria(new Criteria() {
+    protected void pollOnUiThread(final Callable<Boolean> callable) throws Exception {
+        poll(new Callable<Boolean>() {
             @Override
-            public boolean isSatisfied() {
-                try {
-                    return runTestOnUiThreadAndGetResult(callable);
-                } catch (Throwable e) {
-                    return false;
-                }
+            public Boolean call() throws Exception {
+                return runTestOnUiThreadAndGetResult(callable);
             }
         });
     }
@@ -270,7 +255,6 @@ public class XWalkViewInternalTestBase
         CallbackHelper pageFinishedHelper = mTestHelperBridge.getOnPageFinishedHelper();
         int currentCallCount = pageFinishedHelper.getCallCount();
         loadUrlAsync(url);
-
         pageFinishedHelper.waitForCallback(currentCallCount, 1, WAIT_TIMEOUT_SECONDS,
                 TimeUnit.SECONDS);
     }
@@ -279,26 +263,47 @@ public class XWalkViewInternalTestBase
         getInstrumentation().runOnMainSync(new Runnable() {
             @Override
             public void run() {
-                mXWalkViewInternal.load(url, null);
+                mXWalkViewInternal.loadUrl(url);
             }
         });
     }
 
-    protected void loadDataSync(final String url, final String data, final String mimeType,
+    protected void loadDataSync(final String data, final String mimeType,
             final boolean isBase64Encoded) throws Exception {
         CallbackHelper pageFinishedHelper = mTestHelperBridge.getOnPageFinishedHelper();
         int currentCallCount = pageFinishedHelper.getCallCount();
-        loadDataAsync(url, data, mimeType, isBase64Encoded);
+        loadDataAsync(data, mimeType, isBase64Encoded);
         pageFinishedHelper.waitForCallback(currentCallCount, 1, WAIT_TIMEOUT_SECONDS,
                 TimeUnit.SECONDS);
     }
 
-    protected void loadDataAsync(final String url, final String data, final String mimeType,
+    protected void loadDataAsync(final String data, final String mimeType,
              final boolean isBase64Encoded) throws Exception {
         getInstrumentation().runOnMainSync(new Runnable() {
             @Override
             public void run() {
-                mXWalkViewInternal.load(url, data);
+                mXWalkViewInternal.loadData(data, mimeType, isBase64Encoded ? "base64" : null);
+            }
+        });
+    }
+
+    protected void loadDataWithBaseUrlSync(final String data, final String mimeType,
+            final boolean isBase64Encoded, final String baseUrl,
+            final String historyUrl) throws Throwable {
+        CallbackHelper pageFinishedHelper = mTestHelperBridge.getOnPageFinishedHelper();
+        int currentCallCount = pageFinishedHelper.getCallCount();
+        loadDataWithBaseUrlAsync(data, mimeType, isBase64Encoded, baseUrl, historyUrl);
+        pageFinishedHelper.waitForCallback(currentCallCount, 1, WAIT_TIMEOUT_SECONDS,
+                TimeUnit.SECONDS);
+    }
+
+    protected void loadDataWithBaseUrlAsync(final String data, final String mimeType,
+            final boolean isBase64Encoded, final String baseUrl, final String historyUrl) throws Throwable {
+        getInstrumentation().runOnMainSync(new Runnable() {
+            @Override
+            public void run() {
+                mXWalkViewInternal.loadDataWithBaseURL(
+                        baseUrl, data, mimeType, isBase64Encoded ? "base64" : null, historyUrl);
             }
         });
     }
@@ -319,7 +324,7 @@ public class XWalkViewInternalTestBase
         getInstrumentation().runOnMainSync(new Runnable() {
             @Override
             public void run() {
-                xWalkViewInternal.load(url, null);
+                xWalkViewInternal.loadUrl(url);
             }
         });
     }
@@ -367,11 +372,11 @@ public class XWalkViewInternalTestBase
         });
     }
 
-    protected XWalkSettings getXWalkSettingsOnUiThreadByContent(
+    protected XWalkSettingsInternal getXWalkSettingsOnUiThreadByContent(
             final XWalkViewInternal xWalkViewInternal) throws Exception {
-        return runTestOnUiThreadAndGetResult(new Callable<XWalkSettings>() {
+        return runTestOnUiThreadAndGetResult(new Callable<XWalkSettingsInternal>() {
             @Override
-            public XWalkSettings call() throws Exception {
+            public XWalkSettingsInternal call() throws Exception {
                 return xWalkViewInternal.getSettings();
             }
         });
@@ -421,7 +426,7 @@ public class XWalkViewInternalTestBase
 
     protected void loadAssetFile(String fileName) throws Exception {
         String fileContent = getFileContent(fileName);
-        loadDataSync(fileName, fileContent, "text/html", false);
+        loadDataSync(fileContent, "text/html", false);
     }
 
     public void loadAssetFileAndWaitForTitle(String fileName) throws Exception {
@@ -429,7 +434,7 @@ public class XWalkViewInternalTestBase
         int currentCallCount = getTitleHelper.getCallCount();
         String fileContent = getFileContent(fileName);
 
-        loadDataAsync(fileName, fileContent, "text/html", false);
+        loadDataAsync(fileContent, "text/html", false);
 
         getTitleHelper.waitForCallback(currentCallCount, 1, WAIT_TIMEOUT_SECONDS,
                 TimeUnit.SECONDS);
@@ -738,7 +743,7 @@ public class XWalkViewInternalTestBase
     }
 
     protected void poll(final Callable<Boolean> callable) throws Exception {
-        assertTrue(CriteriaHelper.pollForCriteria(new Criteria() {
+        CriteriaHelper.pollInstrumentationThread(new Criteria() {
             @Override
             public boolean isSatisfied() {
                 try {
@@ -748,6 +753,16 @@ public class XWalkViewInternalTestBase
                     return false;
                 }
             }
-        }, WAIT_TIMEOUT_MS, CHECK_INTERVAL));
+        }, WAIT_TIMEOUT_MS, CHECK_INTERVAL);
+    }
+
+    protected void setUseWideViewPortOnUiThreadByXWalkView(final boolean value,
+            final XWalkViewInternal view) throws Exception {
+        getInstrumentation().runOnMainSync(new Runnable() {
+            @Override
+            public void run() {
+                view.getSettings().setUseWideViewPort(value);
+            }
+        });
     }
 }

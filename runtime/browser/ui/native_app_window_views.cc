@@ -4,17 +4,21 @@
 
 #include "xwalk/runtime/browser/ui/native_app_window_views.h"
 
+#include <vector>
+
 #include "base/command_line.h"
 #include "content/public/browser/notification_service.h"
 #include "content/public/browser/web_contents.h"
 #include "grit/xwalk_resources.h"
 #include "ui/base/resource/resource_bundle.h"
-#include "ui/gfx/screen.h"
-#include "ui/views/views_delegate.h"
+#include "ui/display/screen.h"
 #include "ui/views/controls/webview/webview.h"
+#include "components/constrained_window/constrained_window_views.h"
+#include "components/constrained_window/constrained_window_views_client.h"
 #include "ui/views/widget/desktop_aura/desktop_screen.h"
 #include "ui/views/widget/widget.h"
 #include "xwalk/runtime/browser/image_util.h"
+#include "xwalk/runtime/browser/ui/desktop/exclusive_access_bubble_views.h"
 #include "xwalk/runtime/browser/ui/top_view_layout_views.h"
 #include "xwalk/runtime/browser/ui/xwalk_views_delegate.h"
 #include "xwalk/runtime/common/xwalk_notification_types.h"
@@ -26,10 +30,6 @@
 
 #if defined(OS_LINUX) || defined(OS_WIN)
 #include "xwalk/runtime/browser/ui/native_app_window_desktop.h"
-#endif
-
-#if defined(OS_TIZEN)
-#include "xwalk/runtime/browser/ui/native_app_window_tizen.h"
 #endif
 
 namespace xwalk {
@@ -62,20 +62,11 @@ void NativeAppWindowViews::Initialize() {
   params.use_system_default_icon = true;
   params.show_state = create_params_.state;
   params.parent = create_params_.parent;
-#if defined(OS_TIZEN_MOBILE)
-  params.type = views::Widget::InitParams::TYPE_WINDOW_FRAMELESS;
-  // On Tizen apps are sized to the work area.
-  gfx::Rect bounds =
-      gfx::Screen::GetNativeScreen()->GetPrimaryDisplay().work_area();
-  params.bounds = bounds;
-#else
   // Fullscreen should have higher priority than window size.
   if (create_params_.state != ui::SHOW_STATE_FULLSCREEN) {
     params.type = views::Widget::InitParams::TYPE_WINDOW;
     params.bounds = create_params_.bounds;
   }
-#endif
-  params.net_wm_pid = create_params_.net_wm_pid;
   // Set the app icon if it is passed from command line.
   base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
   if (command_line->HasSwitch(switches::kAppIcon)) {
@@ -89,11 +80,7 @@ void NativeAppWindowViews::Initialize() {
   }
 
   window_->Init(params);
-
-#if defined(OS_TIZEN_MOBILE)
-  // Set the bounds manually to avoid inset.
-  window_->SetBounds(bounds);
-#elif !defined(USE_OZONE)
+#if !defined(USE_OZONE)
   window_->CenterWindow(create_params_.bounds.size());
 #endif
 
@@ -151,8 +138,6 @@ void NativeAppWindowViews::Minimize() {
 }
 
 void NativeAppWindowViews::SetFullscreen(bool fullscreen) {
-  views::ViewsDelegate::views_delegate->SetShouldShowTitleBar(!fullscreen);
-
   if (is_fullscreen_ == fullscreen)
     return;
   is_fullscreen_ = fullscreen;
@@ -162,6 +147,21 @@ void NativeAppWindowViews::SetFullscreen(bool fullscreen) {
       xwalk::NOTIFICATION_FULLSCREEN_CHANGED,
       content::Source<NativeAppWindow>(this),
       content::NotificationService::NoDetails());
+
+  ExclusiveAccessBubble::Type bubble_type =
+      (create_params_.state == ui::SHOW_STATE_FULLSCREEN) ?
+      ExclusiveAccessBubble::TYPE_APPLICATION_FULLSCREEN_CLOSE_INSTRUCTION
+      : ExclusiveAccessBubble::TYPE_BROWSER_FULLSCREEN_EXIT_INSTRUCTION;
+
+  // Add a popup window to exit full screen mode or end the application.
+  if (fullscreen) {
+    gfx::NativeWindow parent = web_contents_->GetTopLevelNativeWindow();
+    exclusive_access_bubble_.reset(
+        new ExclusiveAccessBubbleViews(this, bubble_type, parent));
+    exclusive_access_bubble_->UpdateContent(bubble_type);
+  } else {
+    exclusive_access_bubble_.reset();
+  }
 }
 
 void NativeAppWindowViews::Restore() {
@@ -174,6 +174,10 @@ void NativeAppWindowViews::FlashFrame(bool flash) {
 
 void NativeAppWindowViews::Close() {
   window_->Close();
+}
+
+void NativeAppWindowViews::ExitApplication() {
+  delegate_->OnApplicationExitRequested();
 }
 
 bool NativeAppWindowViews::IsActive() const {
@@ -229,7 +233,17 @@ gfx::ImageSkia NativeAppWindowViews::GetWindowAppIcon() {
 }
 
 gfx::ImageSkia NativeAppWindowViews::GetWindowIcon() {
-  return *icon_.ToImageSkia();
+  const gfx::ImageSkia *result =  icon_.ToImageSkia();
+
+  const std::vector<float> oldSupportedScales =
+      gfx::ImageSkia::GetSupportedScales();
+  std::vector<float> scale = { 1.0f };
+  gfx::ImageSkia::SetSupportedScales(scale);
+  // Ensure at least the ImageSkiaRep for the default 1x scale is attached to
+  // ImageSkia's storage
+  result->EnsureRepsForSupportedScales();
+  gfx::ImageSkia::SetSupportedScales(oldSupportedScales);
+  return *result;
 }
 
 bool NativeAppWindowViews::ShouldShowWindowTitle() const {
@@ -320,13 +334,33 @@ void NativeAppWindowViews::OnWidgetBoundsChanged(views::Widget* widget,
     const gfx::Rect& new_bounds) {
 }
 
+bool NativeAppWindowViews::PlatformHandleContextMenu(
+    const content::ContextMenuParams& params) {
+  return false;
+}
+
+// Currently, immersive mode is only available for Chrome OS.
+bool NativeAppWindowViews::IsImmersiveModeEnabled() {
+  return false;
+}
+
+NativeAppWindow* NativeAppWindowViews::GetNativeAppViews() {
+  return this;
+}
+
+views::Widget* NativeAppWindowViews::GetBubbleAssociatedWidget() {
+  return GetWidget();
+}
+
+gfx::Rect NativeAppWindowViews::GetTopContainerBoundsInScreen() {
+  return gfx::Rect();
+}
+
 // static
 NativeAppWindow* NativeAppWindow::Create(
     const NativeAppWindow::CreateParams& create_params) {
   NativeAppWindowViews* window;
-#if defined(OS_TIZEN)
-  window = new NativeAppWindowTizen(create_params);
-#elif defined(OS_LINUX) || defined(OS_WIN)
+#if defined(OS_LINUX) || defined(OS_WIN)
   window = new NativeAppWindowDesktop(create_params);
 #else
   window = new NativeAppWindowViews(create_params);
@@ -337,10 +371,10 @@ NativeAppWindow* NativeAppWindow::Create(
 
 // static
 void NativeAppWindow::Initialize() {
-  CHECK(!views::ViewsDelegate::views_delegate);
-  gfx::Screen::SetScreenInstance(
-      gfx::SCREEN_TYPE_NATIVE, views::CreateDesktopScreen());
-  views::ViewsDelegate::views_delegate = new XWalkViewsDelegate();
+  static std::unique_ptr<views::ViewsDelegate> views_delegate_;
+  CHECK(!views::ViewsDelegate::GetInstance());
+  display::Screen::SetScreenInstance(views::CreateDesktopScreen());
+  views_delegate_.reset(new XWalkViewsDelegate);
 }
 
 }  // namespace xwalk

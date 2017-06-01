@@ -11,7 +11,9 @@
 #include "base/scoped_native_library.h"
 #include "xwalk/extensions/common/xwalk_extension.h"
 #include "xwalk/extensions/public/XW_Extension.h"
+#include "xwalk/extensions/public/XW_Extension_Message_2.h"
 #include "xwalk/extensions/public/XW_Extension_SyncMessage.h"
+#include "base/memory/ptr_util.h"
 
 namespace base {
 class FilePath;
@@ -38,9 +40,13 @@ class XWalkExternalExtension : public XWalkExtension {
 
   bool Initialize();
 
-  void set_runtime_variables(const base::ValueMap& runtime_variables) {
-    runtime_variables_ = runtime_variables;
+  void set_runtime_variables(base::DictionaryValue::Storage* runtime_variables) {
+      runtime_variables_.swap(*runtime_variables);
   }
+
+ protected:
+  // XWalkExtension implementation.
+  XWalkExtensionInstance* CreateInstance() override;
 
  private:
   friend class XWalkExternalAdapter;
@@ -48,10 +54,7 @@ class XWalkExternalExtension : public XWalkExtension {
 
   // Variables from the browser process. Usually things like currently-running
   // application ID.
-  base::ValueMap runtime_variables_;
-
-  // XWalkExtension implementation.
-  XWalkExtensionInstance* CreateInstance() override;
+  base::DictionaryValue::Storage runtime_variables_;
 
   // XW_CoreInterface_1 (from XW_Extension.h) implementation.
   void CoreSetExtensionName(const char* name);
@@ -64,6 +67,10 @@ class XWalkExternalExtension : public XWalkExtension {
 
   // XW_MessagingInterface_1 (from XW_Extension.h) implementation.
   void MessagingRegister(XW_HandleMessageCallback callback);
+
+  // XW_MessagingInterface_2 (from XW_Extension.h) implementation.
+  void MessagingRegisterBinaryMessageCallback(
+      XW_HandleBinaryMessageCallback callback);
 
   // XW_Internal_SyncMessagingInterface_1 (from XW_Extension.h) implementation.
   void SyncMessagingRegister(XW_HandleSyncMessageCallback callback);
@@ -80,6 +87,7 @@ class XWalkExternalExtension : public XWalkExtension {
   XW_ShutdownCallback shutdown_callback_;
   XW_HandleMessageCallback handle_msg_callback_;
   XW_HandleSyncMessageCallback handle_sync_msg_callback_;
+  XW_HandleBinaryMessageCallback handle_binary_msg_callback_;
 
   bool initialized_;
 

@@ -10,11 +10,8 @@ import java.io.InputStream;
 import java.util.HashMap;
 
 import org.xwalk.core.internal.XWalkExtensionInternal;
-import org.xwalk.core.internal.extension.api.contacts.Contacts;
-import org.xwalk.core.internal.extension.api.device_capabilities.DeviceCapabilities;
 import org.xwalk.core.internal.extension.api.launchscreen.LaunchScreenExtension;
-import org.xwalk.core.internal.extension.api.messaging.Messaging;
-import org.xwalk.core.internal.extension.api.presentation.PresentationExtension;
+import org.xwalk.core.internal.extension.api.wifidirect.WifiDirect;
 
 import android.app.Activity;
 import android.content.Context;
@@ -28,19 +25,8 @@ public class BuiltinXWalkExtensions {
     private static HashMap<String, XWalkExtensionInternal> sBuiltinExtensions =
             new HashMap<String, XWalkExtensionInternal>();
 
-    public static void load(Context context, Activity activity) {
+    public static void load(Context context) {
         // Create all built-in extension instances here.
-        {
-            String jsApiContent = "";
-            try {
-                jsApiContent = getExtensionJSFileContent(
-                        context, PresentationExtension.JS_API_PATH, true);
-                sBuiltinExtensions.put(PresentationExtension.JS_API_PATH,
-                        new PresentationExtension(jsApiContent, activity));
-            } catch (IOException e) {
-                Log.w(TAG, "Failed to read JS API file: " + PresentationExtension.JS_API_PATH);
-            }
-        }
 
         {
             String jsApiContent = "";
@@ -48,45 +34,22 @@ public class BuiltinXWalkExtensions {
                 jsApiContent = getExtensionJSFileContent(
                         context, LaunchScreenExtension.JS_API_PATH, true);
                 sBuiltinExtensions.put(LaunchScreenExtension.JS_API_PATH,
-                        new LaunchScreenExtension(jsApiContent, activity));
+                        new LaunchScreenExtension(jsApiContent, context.getApplicationContext()));
             } catch (IOException e) {
                 Log.w(TAG, "Failed to read JS API file: " + LaunchScreenExtension.JS_API_PATH);
             }
         }
 
-        {
+        if (context instanceof Activity) {
             String jsApiContent = "";
             try {
                 jsApiContent = getExtensionJSFileContent(
-                        context, Contacts.JS_API_PATH, true);
-                sBuiltinExtensions.put(Contacts.JS_API_PATH,
-                        new Contacts(jsApiContent, activity));
-            } catch(IOException e) {
-                Log.w(TAG, "Failed to read JS API file: " + Contacts.JS_API_PATH);
-            }
-        }
+                        context, WifiDirect.JS_API_PATH, true);
 
-        {
-            String jsApiContent = "";
-            try {
-                jsApiContent = getExtensionJSFileContent(
-                        context, DeviceCapabilities.JS_API_PATH, true);
-                sBuiltinExtensions.put(DeviceCapabilities.JS_API_PATH,
-                        new DeviceCapabilities(jsApiContent, activity));
+                sBuiltinExtensions.put(WifiDirect.JS_API_PATH,
+                        new WifiDirect(jsApiContent, (Activity) context));
             } catch(IOException e) {
-                Log.w(TAG, "Failed to read JS API file: " + DeviceCapabilities.JS_API_PATH);
-            }
-        }
-
-        {
-            String jsApiContent = "";
-            try {
-                jsApiContent = getExtensionJSFileContent(
-                        context, Messaging.JS_API_PATH, true);
-                sBuiltinExtensions.put(Messaging.JS_API_PATH,
-                        new Messaging(jsApiContent, activity));
-            } catch(IOException e) {
-                Log.w(TAG, "Failed to read JS API file: " + Messaging.JS_API_PATH);
+                Log.w(TAG, "Failed to read JS API file: " + WifiDirect.JS_API_PATH);
             }
         }
     }

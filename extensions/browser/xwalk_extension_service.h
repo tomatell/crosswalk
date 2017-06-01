@@ -7,17 +7,20 @@
 
 #include <stdint.h>
 #include <map>
+#include <memory>
 #include <string>
 #include <vector>
+
 #include "base/callback_forward.h"
 #include "base/containers/scoped_ptr_hash_map.h"
 #include "base/files/file_path.h"
-#include "base/memory/scoped_ptr.h"
 #include "base/threading/thread.h"
 #include "base/values.h"
 #include "content/public/browser/notification_observer.h"
 #include "content/public/browser/notification_registrar.h"
+#include "ipc/message_filter.h"
 #include "xwalk/extensions/browser/xwalk_extension_process_host.h"
+#include "xwalk/extensions/common/xwalk_extension_messages.h"
 #include "xwalk/extensions/common/xwalk_extension_vector.h"
 
 namespace content {
@@ -30,6 +33,7 @@ namespace extensions {
 
 class XWalkExtension;
 class XWalkExtensionData;
+class XWalkExtensionServer;
 
 // This is the entry point for Crosswalk extensions. Its responsible for keeping
 // track of the extensions, and enable them on WebContents once they are
@@ -72,7 +76,7 @@ class XWalkExtensionService : public content::NotificationObserver,
       content::RenderProcessHost* host,
       XWalkExtensionVector* ui_thread_extensions,
       XWalkExtensionVector* extension_thread_extensions,
-      scoped_ptr<base::ValueMap> runtime_variables);
+      std::unique_ptr<base::DictionaryValue::Storage> runtime_variables);
 
   // To be called when a RenderProcess died, so we can gracefully shutdown the
   // associated ExtensionProcess. See Runtime::RenderProcessGone() and
@@ -94,7 +98,7 @@ class XWalkExtensionService : public content::NotificationObserver,
       content::RenderProcessHost* host,
       XWalkExtensionVector* ui_thread_extensions,
       XWalkExtensionVector* extension_thread_extensions,
-      scoped_ptr<base::ValueMap> runtime_variables);
+      std::unique_ptr<base::DictionaryValue::Storage> runtime_variables);
 
   // XWalkExtensionProcessHost::Delegate implementation.
   void OnExtensionProcessDied(XWalkExtensionProcessHost* eph,
@@ -126,7 +130,7 @@ class XWalkExtensionService : public content::NotificationObserver,
       XWalkExtensionVector* extension_thread_extensions);
 
   void CreateExtensionProcessHost(content::RenderProcessHost* host,
-      XWalkExtensionData* data, scoped_ptr<base::ValueMap> runtime_variables);
+      XWalkExtensionData* data, std::unique_ptr<base::DictionaryValue::Storage> runtime_variables);
 
   // The server that handles in process extensions will live in the
   // extension_thread_.
@@ -142,6 +146,48 @@ class XWalkExtensionService : public content::NotificationObserver,
   RenderProcessToExtensionDataMap extension_data_map_;
 
   DISALLOW_COPY_AND_ASSIGN(XWalkExtensionService);
+};
+
+// This object intercepts messages destined to a XWalkExtensionServer and
+// dispatch them to its task runner. A message loop proxy of a thread is a
+// task runner. Like other filters, this filter will run in the IO-thread.
+//
+// In the case of in process extensions, we will pass the task runner of the
+// extension thread.
+class ExtensionServerMessageFilter : public IPC::MessageFilter,
+  public IPC::Sender {
+public:
+  ExtensionServerMessageFilter(
+      scoped_refptr<base::SequencedTaskRunner> task_runner,
+      XWalkExtensionServer* extension_thread_server,
+      XWalkExtensionServer* ui_thread_server);
+
+  void Invalidate();
+
+  // IPC::Sender implementation.
+  bool Send(IPC::Message* msg_ptr) override;
+
+private:
+  ~ExtensionServerMessageFilter() override;
+  int64_t GetInstanceIDFromMessage(const IPC::Message& message);
+  void RouteMessageToServer(const IPC::Message& message);
+  void OnCreateInstance(int64_t instance_id, std::string name);
+  void OnGetExtensions(
+      std::vector<XWalkExtensionServerMsg_ExtensionRegisterParams>* reply);
+
+  // IPC::ChannelProxy::MessageFilter implementation.
+  void OnFilterAdded(IPC::Sender* sender) override;
+  void OnFilterRemoved() override;
+  void OnChannelClosing() override;
+  void OnChannelError() override;
+  bool OnMessageReceived(const IPC::Message& message) override;
+
+  base::Lock lock_;
+  IPC::Sender* sender_;
+  scoped_refptr<base::SequencedTaskRunner> task_runner_;
+  XWalkExtensionServer* extension_thread_server_;
+  XWalkExtensionServer* ui_thread_server_;
+  std::set<int64_t> extension_thread_instances_ids_;
 };
 
 }  // namespace extensions

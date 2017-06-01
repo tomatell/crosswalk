@@ -7,10 +7,11 @@
 
 #include <jni.h>
 
+#include <memory>
+
 #include "base/android/jni_weak_ref.h"
 #include "base/android/scoped_java_ref.h"
-#include "base/memory/scoped_ptr.h"
-#include "base/prefs/pref_service.h"
+#include "components/prefs/pref_service.h"
 #include "content/public/browser/web_contents_observer.h"
 
 namespace xwalk {
@@ -30,6 +31,7 @@ class XWalkSettings : public content::WebContentsObserver {
   void UpdateUserAgent(JNIEnv* env, jobject obj);
   void UpdateWebkitPreferences(JNIEnv* env, jobject obj);
   void UpdateAcceptLanguages(JNIEnv* env, jobject obj);
+  void UpdateFormDataPreferences(JNIEnv* env, jobject obj);
 
  private:
   struct FieldIds;
@@ -44,7 +46,7 @@ class XWalkSettings : public content::WebContentsObserver {
       content::RenderViewHost* render_view_host) override;
 
   // Java field references for accessing the values in the Java object.
-  scoped_ptr<FieldIds> field_ids_;
+  std::unique_ptr<FieldIds> field_ids_;
 
   JavaObjectWeakGlobalRef xwalk_settings_;
 };

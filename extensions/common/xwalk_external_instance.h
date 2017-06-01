@@ -8,6 +8,7 @@
 #include <string>
 #include "xwalk/extensions/common/xwalk_extension.h"
 #include "xwalk/extensions/public/XW_Extension.h"
+#include "xwalk/extensions/public/XW_Extension_Message_2.h"
 #include "xwalk/extensions/public/XW_Extension_SyncMessage.h"
 
 namespace xwalk {
@@ -15,6 +16,8 @@ namespace extensions {
 
 class XWalkExternalAdapter;
 class XWalkExternalExtension;
+
+typedef void* InstanceData;
 
 // XWalkExternalInstance implements the concrete context of execution of an
 // external extension.
@@ -29,12 +32,14 @@ class XWalkExternalInstance : public XWalkExtensionInstance {
                         XW_Instance xw_instance);
   ~XWalkExternalInstance() override;
 
+  InstanceData GetInstanceData() const { return instance_data_; }
+
  private:
   friend class XWalkExternalAdapter;
 
   // XWalkExtensionInstance implementation.
-  void HandleMessage(scoped_ptr<base::Value> msg) override;
-  void HandleSyncMessage(scoped_ptr<base::Value> msg) override;
+  void HandleMessage(std::unique_ptr<base::Value> msg) override;
+  void HandleSyncMessage(std::unique_ptr<base::Value> msg) override;
 
   // XW_CoreInterface_1 (from XW_Extension.h) implementation.
   void CoreSetInstanceData(void* data);
@@ -43,6 +48,9 @@ class XWalkExternalInstance : public XWalkExtensionInstance {
   // XW_MessagingInterface_1 (from XW_Extension.h) implementation.
   void MessagingPostMessage(const char* msg);
 
+  // XW_MessagingInterface_2 (from XW_Extension_Message_2.h) implementation.
+  void MessagingPostBinaryMessage(const char* msg, const size_t size);
+
   // XW_Internal_SyncMessagingInterface_1 (from XW_Extension_SyncMessage.h)
   // implementation.
   void SyncMessagingSetSyncReply(const char* reply);
@@ -50,7 +58,7 @@ class XWalkExternalInstance : public XWalkExtensionInstance {
   XW_Instance xw_instance_;
   std::string sync_reply_;
   XWalkExternalExtension* extension_;
-  void* instance_data_;
+  InstanceData instance_data_;
   bool is_handling_sync_msg_;
 
   DISALLOW_COPY_AND_ASSIGN(XWalkExternalInstance);

@@ -10,7 +10,6 @@
 #include "base/values.h"
 #include "content/public/child/v8_value_converter.h"
 #include "third_party/WebKit/public/web/WebFrame.h"
-#include "third_party/WebKit/public/web/WebScopedMicrotaskSuppression.h"
 #include "xwalk/extensions/renderer/xwalk_module_system.h"
 #include "xwalk/extensions/renderer/xwalk_v8_utils.h"
 
@@ -110,11 +109,13 @@ std::string WrapAPICode(const std::string& extension_code,
       "extension.internal = {};"
       "extension.internal.sendSyncMessage = extension.sendSyncMessage;"
       "delete extension.sendSyncMessage;"
-      "var exports = {}; (function() {'use strict'; %s\n})();"
-      "%s = exports; });",
+      "extension.setExports = function(exports){%s = exports;};"
+      "(function() {'use strict';"
+      "  var exports = {}; %s\n;"
+      "extension.setExports(exports);})();});",
       CodeToEnsureNamespace(extension_name).c_str(),
-      extension_code.c_str(),
-      extension_name.c_str());
+      extension_name.c_str(),
+      extension_code.c_str());
 }
 
 v8::Handle<v8::Value> RunString(const std::string& code,
@@ -124,8 +125,9 @@ v8::Handle<v8::Value> RunString(const std::string& code,
   v8::Handle<v8::String> v8_code(
       v8::String::NewFromUtf8(isolate, code.c_str()));
 
-  blink::WebScopedMicrotaskSuppression suppression;
-  v8::TryCatch try_catch;
+  v8::MicrotasksScope microtasks(
+      isolate, v8::MicrotasksScope::kDoNotRunMicrotasks);
+  v8::TryCatch try_catch(isolate);
   try_catch.SetVerbose(true);
 
   v8::Handle<v8::Script> script(v8::Script::Compile(v8_code));
@@ -173,8 +175,9 @@ void XWalkExtensionModule::LoadExtensionCode(
     requireNative
   };
 
-  blink::WebScopedMicrotaskSuppression suppression;
-  v8::TryCatch try_catch;
+  v8::MicrotasksScope microtasks(
+      context->GetIsolate(), v8::MicrotasksScope::kDoNotRunMicrotasks);
+  v8::TryCatch try_catch(context->GetIsolate());
   try_catch.SetVerbose(true);
   callable_api_code->Call(context->Global(), argc, argv);
   if (try_catch.HasCaught()) {
@@ -196,8 +199,9 @@ void XWalkExtensionModule::HandleMessageFromNative(const base::Value& msg) {
   v8::Handle<v8::Function> message_listener =
       v8::Local<v8::Function>::New(isolate, message_listener_);;
 
-  blink::WebScopedMicrotaskSuppression suppression;
-  v8::TryCatch try_catch;
+  v8::MicrotasksScope microtasks(
+      isolate, v8::MicrotasksScope::kDoNotRunMicrotasks);
+  v8::TryCatch try_catch(isolate);
   message_listener->Call(context->Global(), 1, &v8_value);
   if (try_catch.HasCaught())
     LOG(WARNING) << "Exception when running message listener: "
@@ -215,11 +219,11 @@ void XWalkExtensionModule::PostMessageCallback(
   }
 
   v8::Handle<v8::Context> context = info.GetIsolate()->GetCurrentContext();
-  scoped_ptr<base::Value> value(
+  std::unique_ptr<base::Value> value(
       module->converter_->FromV8Value(info[0], context));
 
   CHECK(module->instance_id_);
-  module->client_->PostMessageToNative(module->instance_id_, value.Pass());
+  module->client_->PostMessageToNative(module->instance_id_, std::move(value));
   result.Set(true);
 }
 
@@ -234,13 +238,13 @@ void XWalkExtensionModule::SendSyncMessageCallback(
   }
 
   v8::Handle<v8::Context> context = info.GetIsolate()->GetCurrentContext();
-  scoped_ptr<base::Value> value(
+  std::unique_ptr<base::Value> value(
       module->converter_->FromV8Value(info[0], context));
 
   CHECK(module->instance_id_);
-  scoped_ptr<base::Value> reply(
+  std::unique_ptr<base::Value> reply(
       module->client_->SendSyncMessageToNative(module->instance_id_,
-                                               value.Pass()));
+                                               std::move(value)));
 
   // If we tried to send a message to an instance that became invalid,
   // then reply will be NULL.

@@ -30,10 +30,6 @@
 #include "xwalk/application/common/constants.h"
 #include "xwalk/runtime/common/xwalk_switches.h"
 #include "xwalk/runtime/common/xwalk_paths.h"
-#if (defined(OS_TIZEN))
-#include "xwalk/runtime/renderer/xwalk_content_renderer_client.h"
-#include "xwalk/runtime/renderer/tizen/xwalk_content_renderer_client_tizen.h"
-#endif
 
 const char* const xwalk::XWalkContentClient::kNaClPluginName = "Native Client";
 
@@ -43,7 +39,7 @@ namespace {
 const char kNaClPluginMimeType[] = "application/x-nacl";
 const char kNaClPluginExtension[] = "";
 const char kNaClPluginDescription[] = "Native Client Executable";
-const uint32 kNaClPluginPermissions = ppapi::PERMISSION_PRIVATE |
+const uint32_t kNaClPluginPermissions = ppapi::PERMISSION_PRIVATE |
                                       ppapi::PERMISSION_DEV;
 
 const char kPnaclPluginMimeType[] = "application/x-pnacl";
@@ -52,7 +48,7 @@ const char kPnaclPluginDescription[] = "Portable Native Client Executable";
 #endif
 
 #if defined(ENABLE_PLUGINS)
-const int32 kPepperFlashPermissions = ppapi::PERMISSION_DEV |
+const int32_t kPepperFlashPermissions = ppapi::PERMISSION_DEV |
                                       ppapi::PERMISSION_PRIVATE |
                                       ppapi::PERMISSION_BYPASS_USER_GESTURE |
                                       ppapi::PERMISSION_FLASH;
@@ -66,8 +62,8 @@ content::PepperPluginInfo CreatePepperFlashInfo(const base::FilePath& path,
   plugin.path = path;
   plugin.permissions = kPepperFlashPermissions;
 
-  std::vector<std::string> flash_version_numbers;
-  base::SplitString(version, '.', &flash_version_numbers);
+  std::vector<std::string> flash_version_numbers = base::SplitString(
+      version, ".", base::TRIM_WHITESPACE, base::SPLIT_WANT_ALL);
   if (flash_version_numbers.size() < 1)
     flash_version_numbers.push_back("11");
   // |SplitString()| puts in an empty string given an empty string. :(
@@ -82,7 +78,7 @@ content::PepperPluginInfo CreatePepperFlashInfo(const base::FilePath& path,
   // E.g., "Shockwave Flash 10.2 r154":
   plugin.description = plugin.name + " " + flash_version_numbers[0] + "." +
       flash_version_numbers[1] + " r" + flash_version_numbers[2];
-  plugin.version = JoinString(flash_version_numbers, '.');
+  plugin.version = base::JoinString(flash_version_numbers, ".");
   content::WebPluginMimeType swf_mime_type(content::kFlashPluginSwfMimeType,
                                            content::kFlashPluginSwfExtension,
                                            content::kFlashPluginSwfDescription);
@@ -124,11 +120,7 @@ std::string GetProduct() {
 
 std::string GetUserAgent() {
   std::string product = GetProduct();
-#if (defined(OS_TIZEN_MOBILE) || defined(OS_ANDROID))
-  product += " Mobile Crosswalk/" XWALK_VERSION;
-#else
   product += " Crosswalk/" XWALK_VERSION;
-#endif
   base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
   if (command_line->HasSwitch(switches::kUseMobileUserAgent))
     product += " Mobile";
@@ -189,25 +181,6 @@ std::string XWalkContentClient::GetProduct() const {
 }
 
 std::string XWalkContentClient::GetUserAgent() const {
-#if (defined(OS_TIZEN))
-  // TODO(jizydorczyk):
-  // const_cast below is required to invoke ContentClient::renderer() method,
-  // I think there is no reason for ContentClient::renderer() in content API
-  // to be non-const as it doesn't change any data, so it should be changed in
-  // chromium code later.
-  XWalkContentClient* content_client = const_cast<XWalkContentClient*>(this);
-  content::ContentRendererClient* content_renderer_client =
-      content_client->renderer();
-  if (content_renderer_client) {
-    XWalkContentRendererClientTizen* content_renderer_client_tizen =
-        static_cast<XWalkContentRendererClientTizen*>(
-            content_renderer_client);
-    const std::string& user_agent_string = content_renderer_client_tizen->
-        GetOverridenUserAgent();
-    if (!user_agent_string.empty())
-      return user_agent_string;
-  }
-#endif
   return xwalk::GetUserAgent();
 }
 
@@ -222,7 +195,7 @@ base::StringPiece XWalkContentClient::GetDataResource(
       resource_id, scale_factor);
 }
 
-base::RefCountedStaticMemory* XWalkContentClient::GetDataResourceBytes(
+base::RefCountedMemory* XWalkContentClient::GetDataResourceBytes(
     int resource_id) const {
   return ResourceBundle::GetSharedInstance().LoadDataResourceBytes(resource_id);
 }
@@ -232,10 +205,19 @@ gfx::Image& XWalkContentClient::GetNativeImageNamed(int resource_id) const {
 }
 
 void XWalkContentClient::AddAdditionalSchemes(
-    std::vector<std::string>* standard_schemes,
+    std::vector<url::SchemeWithType>* standard_schemes,
+    std::vector<url::SchemeWithType>* referrer_schemes,
     std::vector<std::string>* savable_schemes) {
-  standard_schemes->push_back(application::kApplicationScheme);
+  url::SchemeWithType app_scheme = {application::kApplicationScheme,
+                                    url::SCHEME_WITHOUT_PORT};
+  standard_schemes->push_back(app_scheme);
   savable_schemes->push_back(application::kApplicationScheme);
+}
+
+void XWalkContentClient::AddSecureSchemesAndOrigins(
+    std::set<std::string>* schemes,
+    std::set<GURL>* origins) {
+    schemes->insert(application::kApplicationScheme);
 }
 
 std::string XWalkContentClient::GetProcessTypeNameInEnglish(int type) {

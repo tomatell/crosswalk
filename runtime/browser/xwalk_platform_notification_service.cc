@@ -11,12 +11,17 @@
 #include "content/public/browser/render_widget_host_iterator.h"
 #include "content/public/browser/render_view_host.h"
 #include "content/public/browser/web_contents.h"
+#include "content/public/common/notification_resources.h"
 #include "content/public/common/platform_notification_data.h"
 
 #if defined(OS_ANDROID)
 #include "xwalk/runtime/browser/android/xwalk_contents_client_bridge.h"
 #elif defined(OS_LINUX) && defined(USE_LIBNOTIFY)
-#include "xwalk/runtime/browser/linux/xwalk_notification_manager.h"
+#include "xwalk/runtime/browser/xwalk_notification_manager_linux.h"
+#elif defined(OS_WIN)
+#include "base/win/windows_version.h"
+#include "xwalk/runtime/browser/xwalk_notification_manager_win.h"
+#include "xwalk/runtime/browser/xwalk_content_settings.h"
 #endif
 
 namespace xwalk {
@@ -24,50 +29,70 @@ namespace xwalk {
 // static
 XWalkPlatformNotificationService*
 XWalkPlatformNotificationService::GetInstance() {
-  return Singleton<XWalkPlatformNotificationService>::get();
+  return base::Singleton<XWalkPlatformNotificationService>::get();
 }
 
 XWalkPlatformNotificationService::XWalkPlatformNotificationService() {}
 
 XWalkPlatformNotificationService::~XWalkPlatformNotificationService() {}
 
-blink::WebNotificationPermission
+blink::mojom::PermissionStatus
 XWalkPlatformNotificationService::CheckPermissionOnUIThread(
     content::BrowserContext* resource_context,
     const GURL& origin,
     int render_process_id) {
 #if defined(OS_ANDROID)
-  return blink::WebNotificationPermissionAllowed;
-#elif defined(OS_LINUX) && defined(USE_LIBNOTIFY)
-  return blink::WebNotificationPermissionAllowed;
+  return blink::mojom::PermissionStatus::GRANTED;
+#elif defined(OS_LINUX) && defined(USE_LIBNOTIFY) || defined(OS_WIN)
+  return blink::mojom::PermissionStatus::GRANTED;
+#elif defined(OS_WIN)
+  ContentSetting setting =
+      XWalkContentSettings::GetInstance()->GetPermission(
+          CONTENT_SETTINGS_TYPE_NOTIFICATIONS, origin, origin);
+  if (setting == CONTENT_SETTING_ALLOW)
+    return blink::mojom::PermissionStatus::GRANTED;
+  if (setting == CONTENT_SETTING_BLOCK)
+    return blink::mojom::PermissionStatus::DENIED;
+
+  return blink::mojom::PermissionStatus::ASK;
 #else
-  return blink::WebNotificationPermissionDenied;
+  return blink::mojom::PermissionStatus::DENIED;
 #endif
 }
 
-blink::WebNotificationPermission
+blink::mojom::PermissionStatus
 XWalkPlatformNotificationService::CheckPermissionOnIOThread(
     content::ResourceContext* resource_context,
     const GURL& origin,
     int render_process_id) {
 #if defined(OS_ANDROID)
-  return blink::WebNotificationPermissionAllowed;
+  return blink::mojom::PermissionStatus::GRANTED;
 #elif defined(OS_LINUX) && defined(USE_LIBNOTIFY)
-  return blink::WebNotificationPermissionAllowed;
+  return blink::mojom::PermissionStatus::GRANTED;
+#elif defined(OS_WIN)
+  ContentSetting setting =
+      XWalkContentSettings::GetInstance()->GetPermission(
+          CONTENT_SETTINGS_TYPE_NOTIFICATIONS, origin, origin);
+  if (setting == CONTENT_SETTING_ALLOW)
+    return blink::mojom::PermissionStatus::GRANTED;
+  if (setting == CONTENT_SETTING_BLOCK)
+    return blink::mojom::PermissionStatus::DENIED;
+
+  return blink::mojom::PermissionStatus::ASK;
 #else
-  return blink::WebNotificationPermissionDenied;
+  return blink::mojom::PermissionStatus::DENIED;
 #endif
 }
 
 void XWalkPlatformNotificationService::DisplayNotification(
     content::BrowserContext* browser_context,
     const GURL& origin,
-    const SkBitmap& icon,
     const content::PlatformNotificationData& notification_data,
-    scoped_ptr<content::DesktopNotificationDelegate> delegate,
+    const content::NotificationResources& notification_resources,
+    std::unique_ptr<content::DesktopNotificationDelegate> delegate,
     base::Closure* cancel_callback) {
 #if defined(OS_ANDROID)
-  scoped_ptr<content::RenderWidgetHostIterator> widgets(
+  std::unique_ptr<content::RenderWidgetHostIterator> widgets(
       content::RenderWidgetHost::GetRenderWidgetHosts());
   while (content::RenderWidgetHost* rwh = widgets->GetNextHost()) {
     if (!rwh->GetProcess())
@@ -81,8 +106,8 @@ void XWalkPlatformNotificationService::DisplayNotification(
       continue;
     XWalkContentsClientBridgeBase* bridge =
         XWalkContentsClientBridgeBase::FromWebContents(web_contents);
-    bridge->ShowNotification(notification_data, icon, delegate.Pass(),
-                             cancel_callback);
+    bridge->ShowNotification(notification_data, notification_resources,
+                             std::move(delegate), cancel_callback);
     return;
   }
 #elif defined(OS_LINUX) && defined(USE_LIBNOTIFY)
@@ -92,8 +117,23 @@ void XWalkPlatformNotificationService::DisplayNotification(
       browser_context,
       origin,
       notification_data,
-      delegate.Pass(),
+      std::move(delegate),
       cancel_callback);
+#elif defined(OS_WIN)
+  const base::win::OSInfo* os_info = base::win::OSInfo::GetInstance();
+  if (os_info->version() < base::win::VERSION_WIN8)
+    return;
+  if (!notification_manager_win_)
+    notification_manager_win_.reset(new XWalkNotificationManager());
+
+  notification_manager_win_->ShowDesktopNotification(
+      browser_context,
+      origin,
+      notification_data,
+      notification_resources,
+      std::move(delegate),
+      cancel_callback);
+
 #endif
 }
 

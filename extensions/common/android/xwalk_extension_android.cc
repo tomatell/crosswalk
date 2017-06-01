@@ -72,6 +72,22 @@ void XWalkExtensionAndroid::PostMessage(JNIEnv* env, jobject obj,
   env->ReleaseStringUTFChars(msg, str);
 }
 
+void XWalkExtensionAndroid::PostBinaryMessage(JNIEnv* env, jobject obj,
+                                              jint instance, jbyteArray msg) {
+  if (!is_valid()) return;
+
+  InstanceMap::iterator it = instances_.find(instance);
+  if (it == instances_.end()) {
+    LOG(WARNING) << "Instance(" << instance << ") not found ";
+    return;
+  }
+
+  jbyte* msg_ptr = env->GetByteArrayElements(msg, NULL);
+  jsize msg_size = env->GetArrayLength(msg);
+  it->second->PostBinaryMessageWrapper((const char*)msg_ptr, msg_size);
+  env->ReleaseByteArrayElements(msg, msg_ptr, JNI_ABORT);
+}
+
 void XWalkExtensionAndroid::BroadcastMessage(JNIEnv* env, jobject obj,
                                              jstring msg) {
   if (!is_valid()) return;
@@ -104,6 +120,8 @@ XWalkExtensionInstance* XWalkExtensionAndroid::CreateInstance() {
       new XWalkExtensionAndroidInstance(this, java_ref_, next_instance_id_);
   instances_[next_instance_id_] = instance;
 
+  Java_XWalkExtensionAndroid_onInstanceCreated(
+      env, obj.obj(), next_instance_id_);
   next_instance_id_++;
 
   // Here we return the raw pointer to its caller XWalkExtensionServer. Since
@@ -145,35 +163,54 @@ XWalkExtensionAndroidInstance::XWalkExtensionAndroidInstance(
 
 XWalkExtensionAndroidInstance::~XWalkExtensionAndroidInstance() {
   extension_->RemoveInstance(id_);
+
+  // Try to notice Java side on instance removed.
+  JNIEnv* env = base::android::AttachCurrentThread();
+  ScopedJavaLocalRef<jobject> obj = java_ref_.get(env);
+  if (obj.is_null()) {
+    LOG(ERROR) << "No valid Java object to notice instance destroyed.";
+    return;
+  }
+  Java_XWalkExtensionAndroid_onInstanceDestroyed(
+      env, obj.obj(), id_);
 }
 
 void XWalkExtensionAndroidInstance::HandleMessage(
-    scoped_ptr<base::Value> msg) {
+    std::unique_ptr<base::Value> msg) {
   std::string value;
-
-  if (!msg->GetAsString(&value)) {
-    return;
-  }
+  const base::BinaryValue* binary_value = nullptr;
 
   JNIEnv* env = base::android::AttachCurrentThread();
-  ScopedJavaLocalRef<jstring> buffer(env, env->NewStringUTF(value.c_str()));
   ScopedJavaLocalRef<jobject> obj = java_ref_.get(env);
   if (obj.is_null()) {
     LOG(ERROR) << "No valid Java object is referenced for message routing";
     return;
   }
 
-  Java_XWalkExtensionAndroid_onMessage(
-      env, obj.obj(), getID(), buffer.obj());
+  if (msg->GetAsString(&value)) {
+    ScopedJavaLocalRef<jstring> buffer(env, env->NewStringUTF(value.c_str()));
+    Java_XWalkExtensionAndroid_onMessage(
+        env, obj.obj(), getID(), buffer.obj());
+  } else if (msg->GetAsBinary(&binary_value)) {
+    ScopedJavaLocalRef<jbyteArray> buffer(
+        env, env->NewByteArray(binary_value->GetSize()));
+    env->SetByteArrayRegion(
+        buffer.obj(), 0, binary_value->GetSize(),
+        reinterpret_cast<jbyte*>(const_cast<char*>(binary_value->GetBuffer())));
+    Java_XWalkExtensionAndroid_onBinaryMessage(
+        env, obj.obj(), getID(), buffer.obj());
+  } else {
+    NOTREACHED() << "Failed to decode message as either string or binary blob";
+  }
 }
 
 void XWalkExtensionAndroidInstance::HandleSyncMessage(
-    scoped_ptr<base::Value> msg) {
-  scoped_ptr<base::Value> ret_val(new base::StringValue(""));
+    std::unique_ptr<base::Value> msg) {
+  std::unique_ptr<base::Value> ret_val(new base::StringValue(""));
 
   std::string value;
   if (!msg->GetAsString(&value)) {
-    SendSyncReplyToJS(ret_val.Pass());
+    SendSyncReplyToJS(std::move(ret_val));
     return;
   }
 
@@ -181,7 +218,7 @@ void XWalkExtensionAndroidInstance::HandleSyncMessage(
   ScopedJavaLocalRef<jobject> obj = java_ref_.get(env);
   if (obj.is_null()) {
     LOG(ERROR) << "No valid Java object is referenced for sync message routing";
-    SendSyncReplyToJS(ret_val.Pass());
+    SendSyncReplyToJS(std::move(ret_val));
     return;
   }
 
@@ -194,11 +231,15 @@ void XWalkExtensionAndroidInstance::HandleSyncMessage(
   ret_val.reset(new base::StringValue(str));
   env->ReleaseStringUTFChars(ret.obj(), str);
 
-  SendSyncReplyToJS(ret_val.Pass());
+  SendSyncReplyToJS(std::move(ret_val));
 }
 
-static jlong GetOrCreateExtension(JNIEnv* env, jobject obj, jstring name,
-                                 jstring js_api, jobjectArray js_entry_points) {
+static jlong GetOrCreateExtension(
+    JNIEnv* env,
+    const JavaParamRef<jobject>& obj,
+    const JavaParamRef<jstring>& name,
+    const JavaParamRef<jstring>& js_api,
+    const JavaParamRef<jobjectArray>& js_entry_points) {
   xwalk::XWalkBrowserMainPartsAndroid* main_parts =
       ToAndroidMainParts(XWalkContentBrowserClient::Get()->main_parts());
 
@@ -210,7 +251,7 @@ static jlong GetOrCreateExtension(JNIEnv* env, jobject obj, jstring name,
   if (!extension) {
     extension = new XWalkExtensionAndroid(env, obj, name,
                                           js_api, js_entry_points);
-    main_parts->RegisterExtension(scoped_ptr<XWalkExtension>(extension));
+    main_parts->RegisterExtension(std::unique_ptr<XWalkExtension>(extension));
   } else {
     static_cast<XWalkExtensionAndroid*>(extension)->BindToJavaObject(env, obj);
   }

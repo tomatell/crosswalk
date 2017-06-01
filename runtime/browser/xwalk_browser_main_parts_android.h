@@ -10,11 +10,9 @@
 #include "base/memory/ref_counted.h"
 #include "xwalk/runtime/browser/xwalk_browser_main_parts.h"
 
-namespace net {
-class CookieStore;
-}
-
 namespace xwalk {
+
+void GetUserDataDir(base::FilePath* user_data_dir);
 
 class XWalkBrowserMainPartsAndroid : public XWalkBrowserMainParts {
  public:
@@ -35,15 +33,16 @@ class XWalkBrowserMainPartsAndroid : public XWalkBrowserMainParts {
   // XWalkExtensionAndroid needs to register its extensions on
   // XWalkBrowserMainParts so they get correctly registered on-demand
   // by XWalkExtensionService each time a in_process Server is created.
-  void RegisterExtension(scoped_ptr<extensions::XWalkExtension> extension);
+  void RegisterExtension(std::unique_ptr<extensions::XWalkExtension> extension);
 
   // Lookup the extension with the given name from the extension list that is
   // already registered. Returns NULL if no such extension exists.
   extensions::XWalkExtension* LookupExtension(const std::string& name);
 
+  void RegisterExtensionInPath(const std::string& path);
+
  private:
   extensions::XWalkExtensionVector extensions_;
-  scoped_refptr<net::CookieStore> cookie_store_;
 
   DISALLOW_COPY_AND_ASSIGN(XWalkBrowserMainPartsAndroid);
 };

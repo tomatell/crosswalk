@@ -114,7 +114,7 @@ XWalkModuleSystem* XWalkModuleSystem::GetModuleSystemFromContext(
 
 // static
 void XWalkModuleSystem::SetModuleSystemInContext(
-    scoped_ptr<XWalkModuleSystem> module_system,
+    std::unique_ptr<XWalkModuleSystem> module_system,
     v8::Handle<v8::Context> context) {
   context->SetAlignedPointerInEmbedderData(kModuleSystemEmbedderDataIndex,
                                            module_system.release());
@@ -124,11 +124,11 @@ void XWalkModuleSystem::SetModuleSystemInContext(
 void XWalkModuleSystem::ResetModuleSystemFromContext(
     v8::Handle<v8::Context> context) {
   delete GetModuleSystemFromContext(context);
-  SetModuleSystemInContext(scoped_ptr<XWalkModuleSystem>(), context);
+  SetModuleSystemInContext(std::unique_ptr<XWalkModuleSystem>(), context);
 }
 
 void XWalkModuleSystem::RegisterExtensionModule(
-    scoped_ptr<XWalkExtensionModule> module,
+    std::unique_ptr<XWalkExtensionModule> module,
     const std::vector<std::string>& entry_points) {
   const std::string& extension_name = module->extension_name();
   if (ContainsEntryPoint(extension_name)) {
@@ -154,7 +154,7 @@ void XWalkModuleSystem::RegisterExtensionModule(
 }
 
 void XWalkModuleSystem::RegisterNativeModule(
-    const std::string& name, scoped_ptr<XWalkNativeModule> module) {
+    const std::string& name, std::unique_ptr<XWalkNativeModule> module) {
   CHECK(!ContainsKey(native_modules_, name));
   native_modules_[name] = module.release();
 }
@@ -219,8 +219,8 @@ bool XWalkModuleSystem::SetTrampolineAccessorForEntryPoint(
     v8::Handle<v8::Context> context,
     const std::string& entry_point,
     v8::Local<v8::External> user_data) {
-  std::vector<std::string> path;
-  base::SplitString(entry_point, '.', &path);
+  std::vector<std::string> path = base::SplitString(
+      entry_point, ".", base::TRIM_WHITESPACE, base::SPLIT_WANT_ALL);
   std::string basename = path.back();
   path.pop_back();
 
@@ -241,7 +241,7 @@ bool XWalkModuleSystem::SetTrampolineAccessorForEntryPoint(
   params->Set(v8::Integer::New(isolate, 1), entry);
 
   // FIXME(cmarcelo): ensure that trampoline is readonly.
-  value.As<v8::Object>()->SetAccessor(
+  value.As<v8::Object>()->SetAccessor(context,
       v8::String::NewFromUtf8(isolate, basename.c_str()),
       TrampolineCallback, TrampolineSetterCallback, params);
   return true;
@@ -251,8 +251,8 @@ bool XWalkModuleSystem::SetTrampolineAccessorForEntryPoint(
 bool XWalkModuleSystem::DeleteAccessorForEntryPoint(
     v8::Handle<v8::Context> context,
     const std::string& entry_point) {
-  std::vector<std::string> path;
-  base::SplitString(entry_point, '.', &path);
+  std::vector<std::string> path = base::SplitString(
+      entry_point, ".", base::TRIM_WHITESPACE, base::SPLIT_WANT_ALL);
   std::string basename = path.back();
   path.pop_back();
 
@@ -399,8 +399,8 @@ v8::Handle<v8::Value> XWalkModuleSystem::RefetchHolder(
   const std::string entry_point = *v8::String::Utf8Value(
       params->Get(v8::Integer::New(isolate, 1)).As<v8::String>());
 
-  std::vector<std::string> path;
-  base::SplitString(entry_point, '.', &path);
+  std::vector<std::string> path = base::SplitString(
+      entry_point, ".", base::TRIM_WHITESPACE, base::SPLIT_WANT_ALL);
   path.pop_back();
 
   std::string error;
@@ -409,7 +409,7 @@ v8::Handle<v8::Value> XWalkModuleSystem::RefetchHolder(
 
 // static
 void XWalkModuleSystem::TrampolineCallback(
-    v8::Local<v8::String> property,
+    v8::Local<v8::Name> property,
     const v8::PropertyCallbackInfo<v8::Value>& info) {
   XWalkModuleSystem::LoadExtensionForTrampoline(info.GetIsolate(), info.Data());
   v8::Handle<v8::Value> holder = RefetchHolder(info.GetIsolate(), info.Data());
@@ -421,7 +421,7 @@ void XWalkModuleSystem::TrampolineCallback(
 
 // static
 void XWalkModuleSystem::TrampolineSetterCallback(
-    v8::Local<v8::String> property,
+    v8::Local<v8::Name> property,
     v8::Local<v8::Value> value,
     const v8::PropertyCallbackInfo<void>& info) {
   XWalkModuleSystem::LoadExtensionForTrampoline(info.GetIsolate(), info.Data());
@@ -439,6 +439,9 @@ XWalkModuleSystem::ExtensionModuleEntry::ExtensionModuleEntry(
     name(name), module(module), use_trampoline(true),
     entry_points(entry_points) {
 }
+
+XWalkModuleSystem::ExtensionModuleEntry::ExtensionModuleEntry(
+    const ExtensionModuleEntry& other) = default;
 
 XWalkModuleSystem::ExtensionModuleEntry::~ExtensionModuleEntry() {
 }
@@ -459,9 +462,9 @@ bool XWalkModuleSystem::ExtensionModuleEntry::IsPrefix(
 // simple: we only create trampolines for extensions that are leaves
 // in the namespace tree.
 //
-// For example, if there are two extensions "tizen" and "tizen.time",
+// For example, if there are two extensions "echo" and "echo.time",
 // the first one won't be marked with trampoline, but the second one
-// will. So we'll only load code for "tizen" extension.
+// will. So we'll only load code for "echo" extension.
 void XWalkModuleSystem::MarkModulesWithTrampoline() {
   std::sort(extension_modules_.begin(), extension_modules_.end());
 
@@ -479,8 +482,8 @@ void XWalkModuleSystem::MarkModulesWithTrampoline() {
 void XWalkModuleSystem::EnsureExtensionNamespaceIsReadOnly(
     v8::Handle<v8::Context> context,
     const std::string& extension_name) {
-  std::vector<std::string> path;
-  base::SplitString(extension_name, '.', &path);
+  std::vector<std::string> path = base::SplitString(
+      extension_name, ".", base::TRIM_WHITESPACE, base::SPLIT_WANT_ALL);
   std::string basename = path.back();
   path.pop_back();
 
@@ -494,9 +497,10 @@ void XWalkModuleSystem::EnsureExtensionNamespaceIsReadOnly(
 
   v8::Handle<v8::String> v8_extension_name(
       v8::String::NewFromUtf8(context->GetIsolate(), basename.c_str()));
-  value.As<v8::Object>()->ForceSet(
+  value.As<v8::Object>()->DefineOwnProperty(
+      context,
       v8_extension_name, value.As<v8::Object>()->Get(v8_extension_name),
-      v8::ReadOnly);
+      v8::ReadOnly).FromJust();
 }
 
 }  // namespace extensions

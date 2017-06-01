@@ -13,7 +13,7 @@
     android:versionName="1.0" >
 
     <uses-sdk
-        android:minSdkVersion="14"
+        android:minSdkVersion="16"
         android:targetSdkVersion="21" />
 
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
@@ -69,6 +69,15 @@
         <activity
             android:name="org.xwalk.core.sample.MultiXWalkViewActivity"
             android:label="Multiple XWalkView Instances"
+            android:parentActivityName="org.xwalk.core.sample.XWalkEmbeddingAPISample" >
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.SAMPLE_CODE" />
+            </intent-filter>
+        </activity>
+        <activity
+            android:name="org.xwalk.core.sample.MultiXWalkViewOverlayActivity"
+            android:label="Multiple XWalkView Overlay Instances"
             android:parentActivityName="org.xwalk.core.sample.XWalkEmbeddingAPISample" >
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
@@ -150,6 +159,15 @@
         <activity
             android:name="org.xwalk.core.sample.ExtensionActivity"
             android:label="Extension"
+            android:parentActivityName="org.xwalk.core.sample.XWalkEmbeddingAPISample" >
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.SAMPLE_CODE" />
+            </intent-filter>
+        </activity>
+        <activity
+            android:name="org.xwalk.core.sample.SupportZoomActivity"
+            android:label="Zoom"
             android:parentActivityName="org.xwalk.core.sample.XWalkEmbeddingAPISample" >
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />

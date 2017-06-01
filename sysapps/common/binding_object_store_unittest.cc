@@ -4,6 +4,7 @@
 
 #include "xwalk/sysapps/common/binding_object_store.h"
 
+#include "base/memory/ptr_util.h"
 #include "xwalk/extensions/browser/xwalk_extension_function_handler.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -16,23 +17,23 @@ namespace {
 
 const char kTestString[] = "crosswalk1234567890";
 
-void DummyCallback(scoped_ptr<base::ListValue> result) {}
+void DummyCallback(std::unique_ptr<base::ListValue> result) {}
 
-scoped_ptr<XWalkExtensionFunctionInfo> CreateFunctionInfo(
+std::unique_ptr<XWalkExtensionFunctionInfo> CreateFunctionInfo(
     const std::string& name, const std::string& str_argument) {
-  scoped_ptr<base::ListValue> arguments(new base::ListValue);
+  std::unique_ptr<base::ListValue> arguments(new base::ListValue);
   arguments->AppendString(str_argument);
 
-  return make_scoped_ptr(new XWalkExtensionFunctionInfo(
+  return base::WrapUnique(new XWalkExtensionFunctionInfo(
       name,
-      arguments.Pass(),
+      std::move(arguments),
       base::Bind(&DummyCallback)));
 }
 
 class BindingObjectTest : public BindingObject {
  public:
-  static scoped_ptr<BindingObject> Create() {
-    return make_scoped_ptr(new BindingObjectTest()).Pass();
+  static std::unique_ptr<BindingObject> Create() {
+    return base::WrapUnique(new BindingObjectTest());
   }
 
   BindingObjectTest() : call_count_(0) {
@@ -55,7 +56,7 @@ class BindingObjectTest : public BindingObject {
   }
 
  private:
-  void OnTest(scoped_ptr<XWalkExtensionFunctionInfo> info) {
+  void OnTest(std::unique_ptr<XWalkExtensionFunctionInfo> info) {
     EXPECT_EQ(info->name(), "test");
 
     std::string test_string;
@@ -74,9 +75,9 @@ int BindingObjectTest::instance_count_ = 0;
 }  // namespace
 
 TEST(XWalkSysAppsBindingObjectStoreTest, AddBindingObject) {
-  scoped_ptr<XWalkExtensionFunctionHandler> handler(
+  std::unique_ptr<XWalkExtensionFunctionHandler> handler(
       new XWalkExtensionFunctionHandler(NULL));
-  scoped_ptr<BindingObjectStore> store(new BindingObjectStore(handler.get()));
+  std::unique_ptr<BindingObjectStore> store(new BindingObjectStore(handler.get()));
 
   EXPECT_FALSE(store->HasObjectForTesting("foobar1"));
   EXPECT_FALSE(store->HasObjectForTesting("foobar2"));
@@ -114,7 +115,7 @@ TEST(XWalkSysAppsBindingObjectStoreTest, AddBindingObject) {
 
 TEST(XWalkSysAppsBindingObjectStoreTest, OnJSObjectCollected) {
   XWalkExtensionFunctionHandler handler(NULL);
-  scoped_ptr<BindingObjectStore> store(new BindingObjectStore(&handler));
+  std::unique_ptr<BindingObjectStore> store(new BindingObjectStore(&handler));
 
   store->AddBindingObject("foobar1", BindingObjectTest::Create());
   store->AddBindingObject("foobar2", BindingObjectTest::Create());
@@ -142,19 +143,19 @@ TEST(XWalkSysAppsBindingObjectStoreTest, OnJSObjectCollected) {
 
 TEST(XWalkSysAppsBindingObjectStoreTest, OnPostMessageToObject) {
   XWalkExtensionFunctionHandler handler(NULL);
-  scoped_ptr<BindingObjectStore> store(new BindingObjectStore(&handler));
+  std::unique_ptr<BindingObjectStore> store(new BindingObjectStore(&handler));
 
   BindingObjectTest* binding_object1(new BindingObjectTest());
   BindingObjectTest* binding_object2(new BindingObjectTest());
-  scoped_ptr<BindingObject> binding_object_ptr1(binding_object1);
-  scoped_ptr<BindingObject> binding_object_ptr2(binding_object2);
+  std::unique_ptr<BindingObject> binding_object_ptr1(binding_object1);
+  std::unique_ptr<BindingObject> binding_object_ptr2(binding_object2);
 
-  store->AddBindingObject("foobar1", binding_object_ptr1.Pass());
-  store->AddBindingObject("foobar2", binding_object_ptr2.Pass());
+  store->AddBindingObject("foobar1", std::move(binding_object_ptr1));
+  store->AddBindingObject("foobar2", std::move(binding_object_ptr2));
   EXPECT_EQ(BindingObjectTest::instance_count(), 2);
 
-  for (unsigned i = 0; i < 1000; ++i) {
-    scoped_ptr<base::ListValue> arguments(new base::ListValue);
+  for (int i = 0; i < 1000; ++i) {
+    std::unique_ptr<base::ListValue> arguments(new base::ListValue);
 
     // Object ID.
     arguments->AppendString("foobar1");
@@ -167,13 +168,13 @@ TEST(XWalkSysAppsBindingObjectStoreTest, OnPostMessageToObject) {
     targetArguments->AppendString(kTestString);
     arguments->Append(targetArguments);
 
-    scoped_ptr<XWalkExtensionFunctionInfo> postMessageToObjectInfo(
+    std::unique_ptr<XWalkExtensionFunctionInfo> postMessageToObjectInfo(
         new XWalkExtensionFunctionInfo(
             "postMessageToObject",
-            arguments.Pass(),
+            std::move(arguments),
             base::Bind(&DummyCallback)));
 
-    EXPECT_TRUE(handler.HandleFunction(postMessageToObjectInfo.Pass()));
+    EXPECT_TRUE(handler.HandleFunction(std::move(postMessageToObjectInfo)));
     EXPECT_EQ(binding_object1->call_count(), i + 1);
   }
 

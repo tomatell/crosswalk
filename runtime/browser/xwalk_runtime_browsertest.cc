@@ -27,7 +27,6 @@
 #include "content/public/browser/web_contents.h"
 #include "content/public/test/browser_test_utils.h"
 #include "content/public/test/test_utils.h"
-#include "net/base/net_util.h"
 #include "testing/gmock/include/gmock/gmock.h"
 
 #if defined(USE_AURA)
@@ -42,12 +41,17 @@ using content::WindowedNotificationObserver;
 using testing::_;
 
 class XWalkRuntimeTest : public InProcessBrowserTest {
+ protected:
+  void SetUp() override {
+    ASSERT_TRUE(embedded_test_server()->Start());
+    InProcessBrowserTest::SetUp();
+  }
 };
 
 IN_PROC_BROWSER_TEST_F(XWalkRuntimeTest, CreateAndCloseRuntime) {
   size_t len = runtimes().size();
   // Create a new Runtime instance.
-  GURL url(test_server()->GetURL("test.html"));
+  GURL url(embedded_test_server()->GetURL("/test.html"));
   Runtime* runtime = CreateRuntime(url);
   EXPECT_TRUE(url == runtime->web_contents()->GetURL());
   EXPECT_EQ(len + 1, runtimes().size());
@@ -59,7 +63,7 @@ IN_PROC_BROWSER_TEST_F(XWalkRuntimeTest, CreateAndCloseRuntime) {
 }
 
 IN_PROC_BROWSER_TEST_F(XWalkRuntimeTest, LoadURLAndClose) {
-  GURL url(test_server()->GetURL("test.html"));
+  GURL url(embedded_test_server()->GetURL("/test.html"));
   Runtime* runtime = CreateRuntime(url);
   size_t len = runtimes().size();
   runtime->Close();
@@ -68,7 +72,7 @@ IN_PROC_BROWSER_TEST_F(XWalkRuntimeTest, LoadURLAndClose) {
 }
 
 IN_PROC_BROWSER_TEST_F(XWalkRuntimeTest, CloseNativeWindow) {
-  GURL url(test_server()->GetURL("test.html"));
+  GURL url(embedded_test_server()->GetURL("/test.html"));
   Runtime* new_runtime = CreateRuntime(url);
   size_t len = runtimes().size();
   new_runtime->window()->Close();
@@ -78,7 +82,7 @@ IN_PROC_BROWSER_TEST_F(XWalkRuntimeTest, CloseNativeWindow) {
 }
 
 IN_PROC_BROWSER_TEST_F(XWalkRuntimeTest, LaunchWithFullscreenWindow) {
-  GURL url(test_server()->GetURL("test.html"));
+  GURL url(embedded_test_server()->GetURL("/test.html"));
   NativeAppWindow::CreateParams params;
   params.state = ui::SHOW_STATE_FULLSCREEN;
   Runtime* new_runtime = CreateRuntime(url, params);
@@ -152,14 +156,3 @@ IN_PROC_BROWSER_TEST_F(XWalkRuntimeTest, OpenLinkInNewRuntime) {
   EXPECT_NE(runtime, second);
 }
 
-#if defined(OS_TIZEN)
-IN_PROC_BROWSER_TEST_F(XWalkRuntimeTest, LoadTizenWebUiFwFile) {
-  GURL url = xwalk_test_utils::GetTestURL(
-      base::FilePath(), base::FilePath().AppendASCII("tizenwebuifw.html"));
-  base::string16 title = base::ASCIIToUTF16("Pass");
-  Runtime* runtime = CreateRuntime();
-  content::TitleWatcher title_watcher(runtime->web_contents(), title);
-  xwalk_test_utils::NavigateToURL(runtime, url);
-  EXPECT_EQ(title, title_watcher.WaitAndGetTitle());
-}
-#endif

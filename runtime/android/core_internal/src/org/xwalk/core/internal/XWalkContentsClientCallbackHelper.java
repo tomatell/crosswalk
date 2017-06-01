@@ -66,12 +66,26 @@ class XWalkContentsClientCallbackHelper {
         }
     }
 
+    private static class OnReceivedResponseHeadersInfo {
+        final XWalkContentsClient.WebResourceRequestInner mRequest;
+        final XWalkWebResourceResponseInternal mResponse;
+
+        OnReceivedResponseHeadersInfo(
+                XWalkContentsClient.WebResourceRequestInner request,
+                XWalkWebResourceResponseInternal response) {
+            mRequest = request;
+            mResponse = response;
+        }
+    }
+
     private final static int MSG_ON_LOAD_RESOURCE = 1;
     private final static int MSG_ON_PAGE_STARTED = 2;
     private final static int MSG_ON_DOWNLOAD_START = 3;
     private final static int MSG_ON_RECEIVED_LOGIN_REQUEST = 4;
     private final static int MSG_ON_RECEIVED_ERROR = 5;
     private final static int MSG_ON_RESOURCE_LOAD_STARTED = 6;
+    private final static int MSG_ON_PAGE_FINISHED = 7;
+    private final static int MSG_ON_RECEIVED_RESPONSE_HEADERS = 8;
 
     private final XWalkContentsClient mContentsClient;
 
@@ -109,6 +123,16 @@ class XWalkContentsClientCallbackHelper {
                 case MSG_ON_RESOURCE_LOAD_STARTED: {
                     final String url = (String) msg.obj;
                     mContentsClient.onResourceLoadStarted(url);
+                    break;
+                }
+                case MSG_ON_PAGE_FINISHED: {
+                    final String url = (String) msg.obj;
+                    mContentsClient.onPageFinished(url);
+                    break;
+                }
+                case MSG_ON_RECEIVED_RESPONSE_HEADERS: {
+                    OnReceivedResponseHeadersInfo info = (OnReceivedResponseHeadersInfo) msg.obj;
+                    mContentsClient.onReceivedResponseHeaders(info.mRequest, info.mResponse);
                     break;
                 }
                 default:
@@ -149,5 +173,16 @@ class XWalkContentsClientCallbackHelper {
 
     public void postOnResourceLoadStarted(String url) {
         mHandler.sendMessage(mHandler.obtainMessage(MSG_ON_RESOURCE_LOAD_STARTED, url));
+    }
+
+    public void postOnPageFinished(String url) {
+        mHandler.sendMessage(mHandler.obtainMessage(MSG_ON_PAGE_FINISHED, url));
+    }
+
+    public void postOnReceivedResponseHeaders(XWalkContentsClient.WebResourceRequestInner request,
+            XWalkWebResourceResponseInternal response) {
+        OnReceivedResponseHeadersInfo info =
+                new OnReceivedResponseHeadersInfo(request, response);
+        mHandler.sendMessage(mHandler.obtainMessage(MSG_ON_RECEIVED_RESPONSE_HEADERS, info));
     }
 }

@@ -8,6 +8,7 @@
 #include "base/compiler_specific.h"
 #include "base/files/file_path.h"
 #include "base/strings/string16.h"
+#include "content/public/common/context_menu_params.h"
 #include "third_party/WebKit/public/platform/WebDisplayMode.h"
 #include "ui/base/ui_base_types.h"
 #include "ui/gfx/geometry/rect.h"
@@ -29,6 +30,7 @@ class NativeAppWindowDelegate {
   virtual void OnReloadPressed() {}
   virtual void OnStopPressed() {}
   virtual void OnWindowDestroyed() {}
+  virtual void OnApplicationExitRequested() {}
 
  protected:
   virtual ~NativeAppWindowDelegate() {}
@@ -39,6 +41,7 @@ class NativeAppWindow {
  public:
   struct CreateParams {
     CreateParams();
+    CreateParams(const CreateParams& other);
     ~CreateParams();
     // Delegate for this window.
     NativeAppWindowDelegate* delegate;
@@ -56,15 +59,13 @@ class NativeAppWindow {
     ui::WindowShowState state;
     // True if the window can be resized.
     bool resizable;
-    // Used only by X11. Specifies the PID set in _NET_WM_PID window property.
-    int32 net_wm_pid;
     // The parent view which this window belongs to. NULL if it is root window.
     gfx::NativeView parent;
     // The absolute path of splash screen.
     // Empty if splash screen is not to be shown.
     base::FilePath splash_screen_path;
-    // The display mode. Currently only used by Linux desktop platform.
-    blink::WebDisplayMode mode;
+    // The display mode. Used on Desktop platforms.
+    blink::WebDisplayMode display_mode;
   };
 
   // Do one time initialization at application startup.
@@ -108,12 +109,17 @@ class NativeAppWindow {
   // Close the window as soon as possible. The close action may be delayed
   // if an operation is in progress (e.g. a drag operation).
   virtual void Close() = 0;
+  // Close all the open windows and exit the application.
+  virtual void ExitApplication() = 0;
 
   // Returns true if the window is currently the active/focused window.
   virtual bool IsActive() const = 0;
   virtual bool IsMaximized() const = 0;
   virtual bool IsMinimized() const = 0;
   virtual bool IsFullscreen() const = 0;
+
+  virtual bool PlatformHandleContextMenu(
+      const content::ContextMenuParams& params) = 0;
 
  protected:
   virtual ~NativeAppWindow() {}

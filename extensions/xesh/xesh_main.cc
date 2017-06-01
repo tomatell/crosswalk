@@ -4,7 +4,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-
 // This is the XWalk Extensions Shell. It implements a simple javascript shell,
 // based on V8, that can load XWalk Extensions for testing purposes.
 // It is a single process application which runs with three threads (main, IO
@@ -12,12 +11,14 @@
 // The overall implementation started upon v8/samples/shell.cc .
 
 #include <unistd.h>
+
+#include <memory>
 #include <string>
+
 #include "base/at_exit.h"
 #include "base/command_line.h"
 #include "base/files/file_util.h"
 #include "base/files/file_path.h"
-#include "base/memory/scoped_ptr.h"
 #include "base/message_loop/message_loop.h"
 #include "base/message_loop/message_pump_libevent.h"
 #include "base/run_loop.h"
@@ -81,7 +82,7 @@ class InputWatcher : public base::MessagePumpLibevent::Watcher {
       v8_runner_(v8_runner),
       v8_message_loop_(v8_loop) {}
 
-  virtual ~InputWatcher() {}
+  ~InputWatcher() override {}
 
   // base::MessagePumpLibevent::Watcher implementation.
   void OnFileCanReadWithoutBlocking(int fd) override {
@@ -94,7 +95,7 @@ class InputWatcher : public base::MessagePumpLibevent::Watcher {
   void OnFileCanWriteWithoutBlocking(int fd) override {}
 
   void StartWatching() {
-    CommandLine* cmd_line = CommandLine::ForCurrentProcess();
+    base::CommandLine* cmd_line = base::CommandLine::ForCurrentProcess();
 
     if (cmd_line->HasSwitch(kInputFilePath)) {
       std::string file_contents;
@@ -115,12 +116,12 @@ class InputWatcher : public base::MessagePumpLibevent::Watcher {
   void CallV8ExecuteString(std::string statement) {
     is_waiting_v8_runner_ = true;
 
-    PostTaskAndReplyWithResult(v8_message_loop_->message_loop_proxy(),
-        FROM_HERE,
+    PostTaskAndReplyWithResult(
+        v8_message_loop_->task_runner().get(), FROM_HERE,
         base::Bind(&XEShV8Runner::ExecuteString, base::Unretained(v8_runner_),
-            statement),
+                   statement),
         base::Bind(&InputWatcher::OnFinishedV8Execution,
-            base::Unretained(this)));
+                   base::Unretained(this)));
   }
 
   void OnFinishedV8Execution(const std::string& result) {
@@ -153,15 +154,15 @@ class ExtensionManager {
 
   void LoadExtensions() {
     base::FilePath extensions_dir =
-        CommandLine::ForCurrentProcess()->GetSwitchValuePath(
+        base::CommandLine::ForCurrentProcess()->GetSwitchValuePath(
             switches::kXWalkExternalExtensionsPath);
 
-    scoped_ptr<base::ValueMap> runtime_variables(new base::ValueMap);
+    std::unique_ptr<base::DictionaryValue::Storage> runtime_variables(new base::DictionaryValue::Storage);
     (*runtime_variables)["app_id"] = new base::StringValue("xesh");
 
     std::vector<std::string> extensions =
         RegisterExternalExtensionsInDirectory(&server_, extensions_dir,
-            runtime_variables.Pass());
+            std::move(runtime_variables));
 
     fprintf(stderr, "\nExtensions Loaded:\n");
     std::vector<std::string>::const_iterator it = extensions.begin();
@@ -169,12 +170,12 @@ class ExtensionManager {
       fprintf(stderr, "- %s\n", it->c_str());
   }
 
-  void Initialize(base::MessageLoopProxy* io_message_loop_proxy) {
+  void Initialize(scoped_refptr<base::SingleThreadTaskRunner> io_task_runner) {
     handle_ = IPC::Channel::GenerateVerifiedChannelID(std::string());
 
-    server_channel_ = IPC::SyncChannel::Create(handle_,
-        IPC::Channel::MODE_SERVER, &server_, io_message_loop_proxy, true,
-        &shutdown_event_);
+    server_channel_ =
+        IPC::SyncChannel::Create(handle_, IPC::Channel::MODE_SERVER, &server_,
+                                 io_task_runner, true, &shutdown_event_);
 
     server_.Initialize(server_channel_.get());
   }
@@ -185,13 +186,13 @@ class ExtensionManager {
   IPC::ChannelHandle handle_;
   base::WaitableEvent shutdown_event_;
   XWalkExtensionServer server_;
-  scoped_ptr<IPC::SyncChannel> server_channel_;
+  std::unique_ptr<IPC::SyncChannel> server_channel_;
 };
 }  // namespace
 
 int main(int argc, char* argv[]) {
   base::AtExitManager exit_manager;
-  CommandLine::Init(argc, argv);
+  base::CommandLine::Init(argc, argv);
 
   PrintInitialInfo();
 
@@ -208,13 +209,14 @@ int main(int argc, char* argv[]) {
 
   ExtensionManager extension_manager;
   extension_manager.LoadExtensions();
-  extension_manager.Initialize(io_thread.message_loop_proxy());
+  extension_manager.Initialize(io_thread.task_runner());
 
   XEShV8Runner v8_runner;
-  static_cast<base::MessageLoopForIO*>(v8_thread.message_loop())->PostTask(
-      FROM_HERE, base::Bind(&XEShV8Runner::Initialize,
-      base::Unretained(&v8_runner), argc, argv, io_thread.message_loop_proxy(),
-      extension_manager.ipc_channel_handle()));
+  static_cast<base::MessageLoopForIO*>(v8_thread.message_loop())
+      ->PostTask(FROM_HERE, base::Bind(&XEShV8Runner::Initialize,
+                                       base::Unretained(&v8_runner), argc, argv,
+                                       io_thread.task_runner(),
+                                       extension_manager.ipc_channel_handle()));
 
   InputWatcher input_watcher(&v8_runner, v8_thread.message_loop());
 

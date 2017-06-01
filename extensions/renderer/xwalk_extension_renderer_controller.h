@@ -6,12 +6,13 @@
 #define XWALK_EXTENSIONS_RENDERER_XWALK_EXTENSION_RENDERER_CONTROLLER_H_
 
 #include <map>
+#include <memory>
 #include <string>
 #include <vector>
+
 #include "base/compiler_specific.h"
-#include "base/memory/scoped_ptr.h"
 #include "base/synchronization/waitable_event.h"
-#include "content/public/renderer/render_process_observer.h"
+#include "content/public/renderer/render_thread_observer.h"
 #include "third_party/WebKit/public/web/WebFrame.h"
 #include "v8/include/v8.h"
 
@@ -37,7 +38,7 @@ class XWalkModuleSystem;
 // Renderer controller for XWalk extensions keeps track of the extensions
 // registered into the system. It also watches for new render views to attach
 // the extensions handlers to them.
-class XWalkExtensionRendererController : public content::RenderProcessObserver {
+class XWalkExtensionRendererController : public content::RenderThreadObserver {
  public:
   struct Delegate {
     // Allows external code to register extra modules to the module
@@ -57,7 +58,7 @@ class XWalkExtensionRendererController : public content::RenderProcessObserver {
   void WillReleaseScriptContext(blink::WebLocalFrame* frame,
                                 v8::Handle<v8::Context> context);
 
-  // RenderProcessObserver implementation.
+  // RenderThreadObserver implementation.
   bool OnControlMessageReceived(const IPC::Message& message) override;
   void OnRenderProcessShutdown() override;
 
@@ -68,11 +69,11 @@ class XWalkExtensionRendererController : public content::RenderProcessObserver {
   // channel and plug the external_extensions_client_ into it.
   void SetupExtensionProcessClient(IPC::SyncChannel* browser_channel);
 
-  scoped_ptr<XWalkExtensionClient> in_browser_process_extensions_client_;
-  scoped_ptr<XWalkExtensionClient> external_extensions_client_;
+  std::unique_ptr<XWalkExtensionClient> in_browser_process_extensions_client_;
+  std::unique_ptr<XWalkExtensionClient> external_extensions_client_;
 
   base::WaitableEvent shutdown_event_;
-  scoped_ptr<IPC::SyncChannel> extension_process_channel_;
+  std::unique_ptr<IPC::SyncChannel> extension_process_channel_;
   Delegate* delegate_;
 
   DISALLOW_COPY_AND_ASSIGN(XWalkExtensionRendererController);

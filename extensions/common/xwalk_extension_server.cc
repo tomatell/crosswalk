@@ -24,8 +24,7 @@ namespace extensions {
 const size_t kInlineMessageMaxSize = 256 * 1024;
 
 XWalkExtensionServer::XWalkExtensionServer()
-    : sender_(NULL),
-      renderer_process_handle_(base::kNullProcessHandle),
+    : channel_proxy_(NULL),
       permissions_delegate_(NULL) {}
 
 XWalkExtensionServer::~XWalkExtensionServer() {
@@ -51,12 +50,6 @@ bool XWalkExtensionServer::OnMessageReceived(const IPC::Message& message) {
   IPC_END_MESSAGE_MAP()
 
   return handled;
-}
-
-void XWalkExtensionServer::OnChannelConnected(int32 peer_pid) {
-  base::Process process = base::Process::Open(peer_pid);
-  renderer_process_handle_ = process.Handle();
-  CHECK(process.IsValid());
 }
 
 void XWalkExtensionServer::OnCreateInstance(int64_t instance_id,
@@ -108,22 +101,22 @@ void XWalkExtensionServer::OnPostMessageToNative(int64_t instance_id,
   // HandleMessage. It is safe to do this because the |msg| won't be used
   // anywhere else when this function returns. Saves a DeepCopy(), which
   // can be costly depending on the size of Value.
-  scoped_ptr<base::Value> value;
+  std::unique_ptr<base::Value> value;
   const_cast<base::ListValue*>(&msg)->Remove(0, &value);
-  data.instance->HandleMessage(value.Pass());
+  data.instance->HandleMessage(std::move(value));
 }
 
-void XWalkExtensionServer::Initialize(IPC::Sender* sender) {
-  base::AutoLock l(sender_lock_);
-  DCHECK(!sender_);
-  sender_ = sender;
+void XWalkExtensionServer::Initialize(IPC::ChannelProxy* channelProxy) {
+  base::AutoLock l(channel_proxy_lock_);
+  DCHECK(!channel_proxy_);
+  channel_proxy_ = channelProxy;
 }
 
 bool XWalkExtensionServer::Send(IPC::Message* msg) {
-  base::AutoLock l(sender_lock_);
-  if (!sender_)
+  base::AutoLock l(channel_proxy_lock_);
+  if (!channel_proxy_)
     return false;
-  return sender_->Send(msg);
+  return channel_proxy_->Send(msg);
 }
 
 namespace {
@@ -133,7 +126,7 @@ bool ValidateExtensionIdentifier(const std::string& name) {
   bool digit_or_underscore_allowed = false;
   for (size_t i = 0; i < name.size(); ++i) {
     char c = name[i];
-    if (IsAsciiDigit(c)) {
+    if (base::IsAsciiDigit(c)) {
       if (!digit_or_underscore_allowed)
         return false;
     } else if (c == '_') {
@@ -144,7 +137,7 @@ bool ValidateExtensionIdentifier(const std::string& name) {
         return false;
       dot_allowed = false;
       digit_or_underscore_allowed = false;
-    } else if (IsAsciiAlpha(c)) {
+    } else if (base::IsAsciiAlpha(c)) {
       dot_allowed = true;
       digit_or_underscore_allowed = true;
     } else {
@@ -160,7 +153,7 @@ bool ValidateExtensionIdentifier(const std::string& name) {
 }  // namespace
 
 bool XWalkExtensionServer::RegisterExtension(
-    scoped_ptr<XWalkExtension> extension) {
+    std::unique_ptr<XWalkExtension> extension) {
   if (!ValidateExtensionIdentifier(extension->name())) {
     LOG(WARNING) << "Ignoring extension with invalid name: "
                  << extension->name();
@@ -197,11 +190,11 @@ bool XWalkExtensionServer::ContainsExtension(
 }
 
 void XWalkExtensionServer::PostMessageToJSCallback(
-    int64_t instance_id, scoped_ptr<base::Value> msg) {
+    int64_t instance_id, std::unique_ptr<base::Value> msg) {
   base::ListValue wrapped_msg;
   wrapped_msg.Append(msg.release());
 
-  scoped_ptr<IPC::Message> message(
+  std::unique_ptr<IPC::Message> message(
       new XWalkExtensionClientMsg_PostMessageToJS(instance_id, wrapped_msg));
   if (message->size() <= kInlineMessageMaxSize) {
     Send(message.release());
@@ -221,14 +214,20 @@ void XWalkExtensionServer::PostMessageToJSCallback(
   memcpy(shared_memory.memory(), message->data(), message->size());
 
   base::SharedMemoryHandle handle;
-  shared_memory.GiveReadOnlyToProcess(renderer_process_handle_, &handle);
+  base::Process process =
+      base::Process::OpenWithExtraPrivileges(channel_proxy_->GetPeerPID());
+  CHECK(process.IsValid());
+  if (!shared_memory.GiveReadOnlyToProcess(process.Handle(), &handle)) {
+    LOG(WARNING) << "Can't share memory handle to send out of line message";
+    return;
+  }
 
   Send(new XWalkExtensionClientMsg_PostOutOfLineMessageToJS(handle,
                                                             message->size()));
 }
 
 void XWalkExtensionServer::SendSyncReplyToJSCallback(
-    int64_t instance_id, scoped_ptr<base::Value> reply) {
+    int64_t instance_id, std::unique_ptr<base::Value> reply) {
 
   InstanceMap::iterator it = instances_.find(instance_id);
   if (it == instances_.end()) {
@@ -246,13 +245,8 @@ void XWalkExtensionServer::SendSyncReplyToJSCallback(
 
   base::ListValue wrapped_reply;
   wrapped_reply.Append(reply.release());
-
-  // TODO(cmarcelo): we need to inline WriteReplyParams here because it takes
-  // a copy of the parameter and ListValue is noncopyable. This may be
-  // improved in ipc_message_utils.h so we don't need to inline the code here.
-  XWalkExtensionServerMsg_SendSyncMessageToNative::ReplyParam
-      reply_param(wrapped_reply);
-  IPC::WriteParam(data.pending_reply, reply_param);
+  XWalkExtensionServerMsg_SendSyncMessageToNative::WriteReplyParams(
+      data.pending_reply, wrapped_reply);
   Send(data.pending_reply);
 
   data.pending_reply = NULL;
@@ -318,11 +312,11 @@ void XWalkExtensionServer::OnSendSyncMessageToNative(int64_t instance_id,
   // HandleMessage. It is safe to do this because the |msg| won't be used
   // anywhere else when this function returns. Saves a DeepCopy(), which
   // can be costly depending on the size of Value.
-  scoped_ptr<base::Value> value;
+  std::unique_ptr<base::Value> value;
   const_cast<base::ListValue*>(&msg)->Remove(0, &value);
   XWalkExtensionInstance* instance = data.instance;
 
-  instance->HandleSyncMessage(value.Pass());
+  instance->HandleSyncMessage(std::move(value));
 }
 
 void XWalkExtensionServer::OnDestroyInstance(int64_t instance_id) {
@@ -360,25 +354,24 @@ void XWalkExtensionServer::OnGetExtensions(
 }
 
 void XWalkExtensionServer::Invalidate() {
-  base::AutoLock l(sender_lock_);
-  sender_ = NULL;
+  base::AutoLock l(channel_proxy_lock_);
+  channel_proxy_ = NULL;
 }
 
 namespace {
 base::FilePath::StringType GetNativeLibraryPattern() {
-  const base::string16 library_pattern = base::GetNativeLibraryName(
-      base::UTF8ToUTF16("*"));
+  const std::string library_pattern = base::GetNativeLibraryName("*");
 #if defined(OS_WIN)
-  return library_pattern;
+  return base::UTF8ToUTF16(library_pattern);
 #else
-  return base::UTF16ToUTF8(library_pattern);
+  return library_pattern;
 #endif
 }
 }  // namespace
 
 std::vector<std::string> RegisterExternalExtensionsInDirectory(
     XWalkExtensionServer* server, const base::FilePath& dir,
-    scoped_ptr<base::ValueMap> runtime_variables) {
+    std::unique_ptr<base::DictionaryValue::Storage> runtime_variables) {
   CHECK(server);
 
   std::vector<std::string> registered_extensions;
@@ -394,21 +387,21 @@ std::vector<std::string> RegisterExternalExtensionsInDirectory(
 
   for (base::FilePath extension_path = libraries.Next();
         !extension_path.empty(); extension_path = libraries.Next()) {
-    scoped_ptr<XWalkExternalExtension> extension(
+    std::unique_ptr<XWalkExternalExtension> extension(
         new XWalkExternalExtension(extension_path));
 
     // Let the extension know about its own path, so it can be used
     // as an identifier in case you have symlinks to extensions to force it
     // load multiple times.
-    (*runtime_variables)["extension_path"] =
-        new base::StringValue(extension_path.AsUTF8Unsafe());
+    (*runtime_variables)["extension_path"] = base::WrapUnique(
+        new base::StringValue(extension_path.AsUTF8Unsafe()));
 
-    extension->set_runtime_variables(*runtime_variables);
+    extension->set_runtime_variables(runtime_variables.get());
     if (server->permissions_delegate())
       extension->set_permissions_delegate(server->permissions_delegate());
     if (extension->Initialize()) {
       registered_extensions.push_back(extension->name());
-      server->RegisterExtension(extension.Pass());
+      server->RegisterExtension(std::move(extension));
     } else {
       LOG(WARNING) << "Failed to initialize extension: "
                    << extension_path.AsUTF8Unsafe();

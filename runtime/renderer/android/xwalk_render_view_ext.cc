@@ -8,11 +8,12 @@
 
 #include "base/bind.h"
 #include "base/strings/string_piece.h"
+#include "base/strings/utf_string_conversions.h"
 #include "content/public/common/url_constants.h"
 #include "content/public/renderer/android_content_detection_prefixes.h"
 #include "content/public/renderer/document_state.h"
 #include "content/public/renderer/render_view.h"
-#include "skia/ext/refptr.h"
+#include "third_party/WebKit/public/platform/WebSecurityOrigin.h"
 #include "third_party/WebKit/public/platform/WebSize.h"
 #include "third_party/WebKit/public/platform/WebURL.h"
 #include "third_party/WebKit/public/platform/WebVector.h"
@@ -20,13 +21,15 @@
 #include "third_party/WebKit/public/web/WebDocument.h"
 #include "third_party/WebKit/public/web/WebElement.h"
 #include "third_party/WebKit/public/web/WebElementCollection.h"
+#include "third_party/WebKit/public/web/WebFrameWidget.h"
 #include "third_party/WebKit/public/web/WebHitTestResult.h"
 #include "third_party/WebKit/public/web/WebLocalFrame.h"
 #include "third_party/WebKit/public/web/WebNode.h"
-#include "third_party/WebKit/public/web/WebNodeList.h"
-#include "third_party/WebKit/public/web/WebSecurityOrigin.h"
 #include "third_party/WebKit/public/web/WebView.h"
 #include "third_party/skia/include/core/SkPicture.h"
+#include "url/url_canon.h"
+#include "url/url_constants.h"
+#include "url/url_util.h"
 #include "xwalk/runtime/common/android/xwalk_hit_test_data.h"
 #include "xwalk/runtime/common/android/xwalk_render_view_messages.h"
 
@@ -51,12 +54,11 @@ GURL GetAbsoluteSrcUrl(const blink::WebElement& element) {
   return GetAbsoluteUrl(element, element.getAttribute("src"));
 }
 
-blink::WebElement GetImgChild(const blink::WebElement& element) {
+blink::WebElement GetImgChild(const blink::WebNode& node) {
   // This implementation is incomplete (for example if is an area tag) but
   // matches the original WebViewClassic implementation.
 
-  blink::WebElementCollection collection =
-      element.getElementsByHTMLTagName("img");
+  blink::WebElementCollection collection = node.getElementsByHTMLTagName("img");
   DCHECK(!collection.isNull());
   return collection.firstItem();
 }
@@ -67,7 +69,11 @@ bool RemovePrefixAndAssignIfMatches(const base::StringPiece& prefix,
   const base::StringPiece spec(url.possibly_invalid_spec());
 
   if (spec.starts_with(prefix)) {
-    dest->assign(spec.begin() + prefix.length(), spec.end());
+    url::RawCanonOutputW<1024> output;
+    url::DecodeURLEscapeSequences(spec.data() + prefix.length(),
+                                  spec.length() - prefix.length(), &output);
+    *dest =
+        base::UTF16ToUTF8(base::StringPiece16(output.data(), output.length()));
     return true;
   }
   return false;
@@ -128,7 +134,7 @@ void PopulateHitTestData(const GURL& absolute_link_url,
 }  // namespace
 
 XWalkRenderViewExt::XWalkRenderViewExt(content::RenderView* render_view)
-    : content::RenderViewObserver(render_view), page_scale_factor_(0.0f) {
+    : content::RenderViewObserver(render_view) {
 }
 
 XWalkRenderViewExt::~XWalkRenderViewExt() {
@@ -150,6 +156,7 @@ bool XWalkRenderViewExt::OnMessageReceived(const IPC::Message& message) {
                         OnResetScrollAndScaleState)
     IPC_MESSAGE_HANDLER(XWalkViewMsg_SetInitialPageScale, OnSetInitialPageScale)
     IPC_MESSAGE_HANDLER(XWalkViewMsg_SetBackgroundColor, OnSetBackgroundColor)
+    IPC_MESSAGE_HANDLER(XWalkViewMsg_SetTextZoomFactor, OnSetTextZoomFactor)
     IPC_MESSAGE_UNHANDLED(handled = false)
   IPC_END_MESSAGE_MAP()
   return handled;
@@ -160,9 +167,9 @@ void XWalkRenderViewExt::OnDocumentHasImagesRequest(int id) {
   if (render_view()) {
     blink::WebView* webview = render_view()->GetWebView();
     if (webview) {
-      blink::WebVector<blink::WebElement> images;
-      webview->mainFrame()->document().images(images);
-      hasImages = !images.isEmpty();
+      blink::WebDocument document = webview->mainFrame()->document();
+      const blink::WebElement child_img = GetImgChild(document);
+      hasImages = !child_img.isNull();
     }
   }
   Send(new XWalkViewHostMsg_DocumentHasImagesResponse(routing_id(), id,
@@ -174,20 +181,8 @@ void XWalkRenderViewExt::DidCommitProvisionalLoad(blink::WebLocalFrame* frame,
   content::DocumentState* document_state =
       content::DocumentState::FromDataSource(frame->dataSource());
   if (document_state->can_load_local_resources()) {
-    blink::WebSecurityOrigin origin = frame->document().securityOrigin();
+    blink::WebSecurityOrigin origin = frame->document().getSecurityOrigin();
     origin.grantLoadLocalResources();
-  }
-}
-
-void XWalkRenderViewExt::DidCommitCompositorFrame() {
-  UpdatePageScaleFactor();
-}
-
-void XWalkRenderViewExt::UpdatePageScaleFactor() {
-  if (page_scale_factor_ != render_view()->GetWebView()->pageScaleFactor()) {
-    page_scale_factor_ = render_view()->GetWebView()->pageScaleFactor();
-    Send(new XWalkViewHostMsg_PageScaleFactorChanged(routing_id(),
-                                                  page_scale_factor_));
   }
 }
 
@@ -195,12 +190,11 @@ void XWalkRenderViewExt::FocusedNodeChanged(const blink::WebNode& node) {
   if (node.isNull() || !node.isElementNode() || !render_view())
     return;
 
-  // Note: element is not const due to innerText() is not const.
-  blink::WebElement element = node.toConst<blink::WebElement>();
+  const blink::WebElement element = node.toConst<blink::WebElement>();
   XWalkHitTestData data;
 
   data.href = GetHref(element);
-  data.anchor_text = element.innerText();
+  data.anchor_text = element.textContent();
 
   GURL absolute_link_url;
   if (node.isLink())
@@ -215,22 +209,28 @@ void XWalkRenderViewExt::FocusedNodeChanged(const blink::WebNode& node) {
 
   PopulateHitTestData(absolute_link_url,
                       absolute_image_url,
-                      render_view()->IsEditableNode(node),
+                      element.isEditable(),
                       &data);
   Send(new XWalkViewHostMsg_UpdateHitTestData(routing_id(), data));
 }
 
-void XWalkRenderViewExt::OnDoHitTest(int view_x, int view_y) {
+void XWalkRenderViewExt::OnDestruct() {
+  delete this;
+}
+
+void XWalkRenderViewExt::OnDoHitTest(const gfx::PointF& touch_center,
+                                     const gfx::SizeF& touch_area) {
   if (!render_view() || !render_view()->GetWebView())
     return;
 
   const blink::WebHitTestResult result =
-      render_view()->GetWebView()->hitTestResultAt(
-          blink::WebPoint(view_x, view_y));
+      render_view()->GetWebView()->hitTestResultForTap(
+          blink::WebPoint(touch_center.x(), touch_center.y()),
+          blink::WebSize(touch_area.width(), touch_area.height()));
   XWalkHitTestData data;
 
   if (!result.urlElement().isNull()) {
-    data.anchor_text = result.urlElement().innerText();
+    data.anchor_text = result.urlElement().textContent();
     data.href = GetHref(result.urlElement());
   }
 
@@ -263,9 +263,18 @@ void XWalkRenderViewExt::OnSetInitialPageScale(double page_scale_factor) {
 }
 
 void XWalkRenderViewExt::OnSetBackgroundColor(SkColor c) {
+  if (!render_view() || !render_view()->GetWebFrameWidget())
+    return;
+  blink::WebFrameWidget* web_frame_widget = render_view()->GetWebFrameWidget();
+  web_frame_widget->setBaseBackgroundColor(c);
+}
+
+void XWalkRenderViewExt::OnSetTextZoomFactor(float zoom_factor) {
   if (!render_view() || !render_view()->GetWebView())
     return;
-  render_view()->GetWebView()->setBaseBackgroundColor(c);
+  // Hide selection and autofill popups.
+  render_view()->GetWebView()->hidePopups();
+  render_view()->GetWebView()->setTextZoomFactor(zoom_factor);
 }
 
 }  // namespace xwalk

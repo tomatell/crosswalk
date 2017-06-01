@@ -5,16 +5,17 @@
 #ifndef XWALK_RUNTIME_APP_XWALK_MAIN_DELEGATE_H_
 #define XWALK_RUNTIME_APP_XWALK_MAIN_DELEGATE_H_
 
+#include <memory>
 #include <string>
 
 #include "base/compiler_specific.h"
-#include "base/memory/scoped_ptr.h"
 #include "content/public/app/content_main_delegate.h"
 #include "xwalk/runtime/common/xwalk_content_client.h"
 
 namespace xwalk {
 
 class XWalkRunner;
+class XWalkResourceDelegate;
 
 class XWalkMainDelegate : public content::ContentMainDelegate {
  public:
@@ -24,8 +25,10 @@ class XWalkMainDelegate : public content::ContentMainDelegate {
   // ContentMainDelegate implementation:
   bool BasicStartupComplete(int* exit_code) override;
   void PreSandboxStartup() override;
+  void SandboxInitialized(const std::string& process_type) override;
   int RunProcess(const std::string& process_type,
       const content::MainFunctionParams& main_function_params) override;
+  void ProcessExiting(const std::string& process_type) override;
 #if defined(OS_POSIX) && !defined(OS_ANDROID) && !defined(OS_MACOSX)
   void ZygoteStarting(
       ScopedVector<content::ZygoteForkDelegate>* delegates) override;
@@ -33,12 +36,13 @@ class XWalkMainDelegate : public content::ContentMainDelegate {
   content::ContentBrowserClient* CreateContentBrowserClient() override;
   content::ContentRendererClient* CreateContentRendererClient() override;
 
-  static void InitializeResourceBundle();
-
  private:
-  scoped_ptr<XWalkRunner> xwalk_runner_;
-  scoped_ptr<content::ContentRendererClient> renderer_client_;
-  scoped_ptr<content::ContentClient> content_client_;
+  void InitializeResourceBundle();
+
+  std::unique_ptr<XWalkRunner> xwalk_runner_;
+  std::unique_ptr<content::ContentRendererClient> renderer_client_;
+  std::unique_ptr<content::ContentClient> content_client_;
+  std::unique_ptr<XWalkResourceDelegate> resource_delegate_;
 
   DISALLOW_COPY_AND_ASSIGN(XWalkMainDelegate);
 };

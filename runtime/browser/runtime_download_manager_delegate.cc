@@ -16,14 +16,24 @@
 #include "base/command_line.h"
 #include "base/files/file_util.h"
 #include "base/logging.h"
-#include "base/strings/string_util.h"
-#include "base/strings/utf_string_conversions.h"
+#include "base/path_service.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/download_manager.h"
 #include "content/public/browser/web_contents.h"
+#include "content/public/common/file_chooser_params.h"
 #include "content/shell/common/shell_switches.h"
 #include "net/base/filename_util.h"
+#include "xwalk/runtime/browser/runtime_platform_util.h"
+#include "xwalk/runtime/common/xwalk_paths.h"
+
+#if defined(OS_LINUX)
+#include "base/nix/xdg_util.h"
+#endif
+
+#if defined(OS_WIN)
+#include "ui/base/win/open_file_name_win.h"
+#endif
 
 using content::BrowserThread;
 
@@ -36,7 +46,8 @@ RuntimeDownloadManagerDelegate::RuntimeDownloadManagerDelegate()
   AddRef();
 }
 
-RuntimeDownloadManagerDelegate::~RuntimeDownloadManagerDelegate() {}
+RuntimeDownloadManagerDelegate::~RuntimeDownloadManagerDelegate() {
+}
 
 void RuntimeDownloadManagerDelegate::SetDownloadManager(
     content::DownloadManager* download_manager) {
@@ -53,10 +64,8 @@ bool RuntimeDownloadManagerDelegate::DetermineDownloadTarget(
   DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
   // This assignment needs to be here because even at the call to
   // SetDownloadManager, the system is not fully initialized.
-  if (default_download_path_.empty()) {
-    default_download_path_ = download_manager_->GetBrowserContext()->GetPath().
-        Append(FILE_PATH_LITERAL("Downloads"));
-  }
+  if (default_download_path_.empty())
+    PathService::Get(xwalk::DIR_DOWNLOAD_PATH, &default_download_path_);
 
   if (!download->GetForcedFilePath().empty()) {
     callback.Run(download->GetForcedFilePath(),
@@ -69,7 +78,7 @@ bool RuntimeDownloadManagerDelegate::DetermineDownloadTarget(
   base::FilePath generated_name = net::GenerateFileName(
       download->GetURL(),
       download->GetContentDisposition(),
-      base::EmptyString(),
+      std::string(),
       download->GetSuggestedFilename(),
       download->GetMimeType(),
       "download");
@@ -92,12 +101,12 @@ bool RuntimeDownloadManagerDelegate::ShouldOpenDownload(
 
 void RuntimeDownloadManagerDelegate::GetNextId(
     const content::DownloadIdCallback& callback) {
-  static uint32 next_id = content::DownloadItem::kInvalidId + 1;
+  static uint32_t next_id = content::DownloadItem::kInvalidId + 1;
   callback.Run(next_id++);
 }
 
 void RuntimeDownloadManagerDelegate::GenerateFilename(
-    uint32 download_id,
+    uint32_t download_id,
     const content::DownloadTargetCallback& callback,
     const base::FilePath& generated_name,
     const base::FilePath& suggested_directory) {
@@ -118,7 +127,7 @@ void RuntimeDownloadManagerDelegate::GenerateFilename(
 }
 
 void RuntimeDownloadManagerDelegate::OnDownloadPathGenerated(
-    uint32 download_id,
+    uint32_t download_id,
     const content::DownloadTargetCallback& callback,
     const base::FilePath& suggested_path) {
   DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
@@ -135,7 +144,7 @@ void RuntimeDownloadManagerDelegate::OnDownloadPathGenerated(
 }
 
 void RuntimeDownloadManagerDelegate::ChooseDownloadPath(
-    uint32 download_id,
+    uint32_t download_id,
     const content::DownloadTargetCallback& callback,
     const base::FilePath& suggested_path) {
   DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
@@ -143,34 +152,20 @@ void RuntimeDownloadManagerDelegate::ChooseDownloadPath(
   if (!item || (item->GetState() != content::DownloadItem::IN_PROGRESS))
     return;
 
+#if defined(OS_LINUX) || defined(OS_WIN)
   base::FilePath result;
-#if defined(OS_WIN) && !defined(USE_AURA)
-  std::wstring file_part = base::FilePath(suggested_path).BaseName().value();
-  wchar_t file_name[MAX_PATH];
-  base::wcslcpy(file_name, file_part.c_str(), arraysize(file_name));
-  OPENFILENAME save_as;
-  ZeroMemory(&save_as, sizeof(save_as));
-  save_as.lStructSize = sizeof(OPENFILENAME);
-  save_as.hwndOwner = item->GetWebContents()->GetView()->GetNativeView();
-  save_as.lpstrFile = file_name;
-  save_as.nMaxFile = arraysize(file_name);
-
-  std::wstring directory;
-  if (!suggested_path.empty())
-    directory = suggested_path.DirName().value();
-
-  save_as.lpstrInitialDir = directory.c_str();
-  save_as.Flags = OFN_OVERWRITEPROMPT | OFN_EXPLORER | OFN_ENABLESIZING |
-                  OFN_NOCHANGEDIR | OFN_PATHMUSTEXIST;
-
-  if (GetSaveFileName(&save_as))
-    result = base::FilePath(std::wstring(save_as.lpstrFile));
+  content::WebContents* contents = item->GetWebContents();
+  Runtime* runtime = static_cast<Runtime*>(contents->GetDelegate());
+  if (!runtime->AddDownloadItem(item, callback, suggested_path)) {
+    const base::FilePath empty;
+    callback.Run(empty,
+        content::DownloadItem::TARGET_DISPOSITION_PROMPT,
+        content::DOWNLOAD_DANGER_TYPE_NOT_DANGEROUS,
+        suggested_path);
+  }
 #else
   NOTIMPLEMENTED();
 #endif
-
-  callback.Run(result, content::DownloadItem::TARGET_DISPOSITION_PROMPT,
-               content::DOWNLOAD_DANGER_TYPE_NOT_DANGEROUS, result);
 }
 
 void RuntimeDownloadManagerDelegate::SetDownloadBehaviorForTesting(

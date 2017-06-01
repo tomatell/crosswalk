@@ -36,9 +36,10 @@ public class ZoomTest extends XWalkViewInternalTestBase {
     @SmallTest
     @Feature({"zoomBy, zoomIn, zoomOut"})
     public void testZoom() throws Throwable {
+        setUseWideViewPortOnUiThreadByXWalkView(true, getXWalkView());
         assertFalse("Should not be able to zoom in", canZoomInOnUiThread());
 
-        loadDataSync(null, getZoomableHtml(mPageMinimumScale), "text/html", false);
+        loadDataSync(getZoomableHtml(mPageMinimumScale), "text/html", false);
         waitForScaleToBecome(mPageMinimumScale);
         assertTrue("Should be able to zoom in", canZoomInOnUiThread());
         assertFalse("Should not be able to zoom out", canZoomOutOnUiThread());

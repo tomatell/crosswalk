@@ -13,6 +13,7 @@ enum {
   PATH_START = 1000,
   DIR_DATA_PATH = PATH_START,  // Directory where the cache and local storage
                                // data resides.
+  DIR_LOGS,                    // Directory where logs should be written.
   DIR_INTERNAL_PLUGINS,        // Directory where internal plugins reside.
 
   FILE_NACL_PLUGIN,            // Full path to the internal NaCl plugin file.
@@ -21,6 +22,7 @@ enum {
   DIR_TEST_DATA,               // Directory where unit test data resides.
   DIR_WGT_STORAGE_PATH,        // Directory where widget storage data resides.
   DIR_APPLICATION_PATH,        // Directory where applications data is stored.
+  DIR_DOWNLOAD_PATH,           // Default directory for the Downloads folder.
   PATH_END
 };
 

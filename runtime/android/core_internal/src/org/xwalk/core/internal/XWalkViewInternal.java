@@ -1,3 +1,18 @@
+/*
+ * Copyright (C) 2006 The Android Open Source Project
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
 // Copyright (c) 2013-2014 Intel Corporation. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
@@ -7,22 +22,29 @@ package org.xwalk.core.internal;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.app.ApplicationErrorReport;
+import android.content.ActivityNotFoundException;
 import android.content.Context;
 import android.content.DialogInterface;
 import android.content.Intent;
+import android.graphics.Bitmap;
 import android.graphics.Paint;
 import android.graphics.Rect;
+import android.net.http.SslCertificate;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.Environment;
 import android.os.Looper;
-import android.provider.MediaStore;
+import android.text.TextUtils;
 import android.util.AttributeSet;
 import android.util.Log;
 import android.view.KeyEvent;
+import android.view.SurfaceView;
 import android.view.ViewGroup;
+import android.view.View.OnTouchListener;
 import android.view.inputmethod.EditorInfo;
 import android.view.inputmethod.InputConnection;
+import android.view.MotionEvent;
+import android.view.View;
 import android.webkit.ValueCallback;
 import android.widget.FrameLayout;
 
@@ -31,17 +53,11 @@ import java.io.IOException;
 import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.lang.ref.WeakReference;
-import java.text.SimpleDateFormat;
-import java.util.ArrayList;
-import java.util.Date;
+import java.util.Map;
 
-import org.chromium.base.ActivityState;
-import org.chromium.base.ApplicationStatus;
-import org.chromium.base.ApplicationStatus.ActivityStateListener;
 import org.chromium.base.ApplicationStatusManager;
 import org.chromium.base.CommandLine;
 import org.chromium.content.browser.ContentViewCore;
-import org.chromium.net.NetworkChangeNotifier;
 
 import org.xwalk.core.internal.extension.BuiltinXWalkExtensions;
 
@@ -51,11 +67,51 @@ import org.xwalk.core.internal.extension.BuiltinXWalkExtensions;
  * <a href="http://developer.android.com/reference/android/view/SurfaceView.html">
  * android.view.SurfaceView</a> for rendering web pages by default, it can't be resized,
  * rotated, transformed and animated due to the limitations of SurfaceView.
- * Alternatively, if the preference key {@link XWalkPreferencesInternal#ANIMATABLE_XWALK_VIEW}
- * is set to True, XWalkViewInternal can be transformed and animated because
+ * Alternatively, XWalkViewInternal can be transformed and animated by using
  * <a href="http://developer.android.com/reference/android/view/TextureView.html">
- * TextureView</a> is intentionally used to render web pages for animation support.
+ * TextureView</a>, which is intentionally used to render web pages for animation support.
  * Besides, XWalkViewInternal won't be rendered if it's invisible.</p>
+ *
+ * <p>Crosswalk provides two ways to choose TextureView or SurfaceView:</p>
+ * <ol><li>[To Be Deprecated] Set preference key
+ * {@link XWalkPreferencesInternal#ANIMATABLE_XWALK_VIEW} to true to use TextureView,
+ * and vice versa. Notice that all XWalkViews share the same preference value.</li>
+ * <li>Application developer can set this attribute for a single XWalkView by XML without
+ * impact on other XWalkViews, notice that in this case the value of
+ * XWalkPreferencesInternal#ANIMATABLE_XWALK_VIEW is invaild for this XWalkView.
+ * See below steps for detail:
+ *  <ul type="disc">
+ *   <li> Create an attrs.xml under res/values/ as below, the attrs name must be "animatable":
+ *    <pre>
+ *    &lt;?xml version="1.0" encoding="utf-8"?&gt;
+ *    &lt;resources&gt;
+ *      &lt;declare-styleable name="AnimatableView"&gt;
+ *        &lt;attr name="animatable" format="boolean" /&gt;
+ *      &lt;/declare-styleable&gt;
+ *    &lt;/resources&gt;</pre>
+ *   </li>
+ *   <li>Add xwalk namespace into activity layout file, such as layout/activity_main.xml.
+ *    <pre>
+ *    &lt;LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+ *        xmlns:xwalk="http://schemas.android.com/apk/res-auto"
+ *        ......</pre>
+ *   </li>
+ *   <li>Set xwalk attribute to true or false in the same xml as above. True for TextureView,
+ *         false for SurfaceView, and SurfaceView is the default.
+ *    <pre>
+ *    &lt;org.xwalk.core.XWalkView
+ *        android:id="@+id/xwalkview"
+ *        android:layout_width="match_parent"
+ *        android:layout_height="match_parent"
+ *        xwalk:animatable="true" &gt;
+ *    &lt;/org.xwalk.core.XWalkView&gt;</pre>
+ *   </li>
+ *   <li>Use XWalkView in MainActivity.java.
+ *    <pre>mXWalkView = (XWalkView) findViewById(R.id.xwalkview);</pre>
+ *   </li></ul>
+ *   There is debug message on logcat according to your "animatable" values:
+ *    "XWalkContent: CompositingSurfaceType is TextureView"
+ *   </li></ol>
  *
  * <p>XWalkViewInternal needs hardware acceleration to render web pages. As a result, the
  * AndroidManifest.xml of the caller's app must be appended with the attribute
@@ -69,108 +125,105 @@ import org.xwalk.core.internal.extension.BuiltinXWalkExtensions;
  * {@link XWalkUIClientInternal} for listening to the events related to resource loading and UI.
  * By default, Crosswalk has a default implementation. Callers can override them if needed.</p>
  *
- * <p>Unlike other Android views, this class has to listen to system events like intents and activity result.
- * The web engine inside this view need to get and handle them.
- * With contianer activity's lifecycle change, XWalkViewInternal will pause all timers and other
- * components like videos when activity paused, resume back them when activity resumed.
- * When activity is about to destroy, XWalkViewInternal will destroy itself as well.
- * Embedders can also call onHide() and pauseTimers() to explicitly pause XWalkViewInternal.
- * Similarily with onShow(), resumeTimers() and onDestroy().
+ * <p><strong>Unlike WebView, you shouldn't use XWalkView directly. It must be accompanied with
+ * {@link XWalkActivity} or {@link XWalkInitializer}. </strong></p>
  *
- * For example:</p>
+ * <p>For example:</p>
  *
  * <pre>
- *   import android.app.Activity;
- *   import android.os.Bundle;
+ * import android.content.Intent;
+ * import android.os.Bundle;
+ * import android.webkit.ValueCallback;
  *
- *   import org.xwalk.core.internal.XWalkResourceClientInternal;
- *   import org.xwalk.core.internal.XWalkUIClientInternal;
- *   import org.xwalk.core.internal.XWalkViewInternal;
+ * import org.xwalk.core.XWalkActivity;
+ * import org.xwalk.core.XWalkResourceClientInternal;
+ * import org.xwalk.core.XWalkUIClientInternal;
+ * import org.xwalk.core.XWalkViewInternal;
+ * import org.xwalk.core.XWalkWebResourceRequestInternal;
+ * import org.xwalk.core.XWalkWebResourceResponseInternal;
  *
- *   public class MyActivity extends Activity {
- *       XWalkViewInternal mXwalkView;
+ * public class MainActivity extends XWalkActivity {
+ *     private XWalkViewInternal mXWalkView;
  *
- *       class MyResourceClient extends XWalkResourceClientInternal {
- *           MyResourceClient(XWalkViewInternal view) {
- *               super(view);
- *           }
+ *     private class MyResourceClient extends XWalkResourceClientInternal {
+ *         public MyResourceClient(XWalkViewInternal view) {
+ *             super(view);
+ *         }
  *
- *           &#64;Override
- *           WebResourceResponse shouldInterceptLoadRequest(XWalkViewInternal view, String url) {
- *               // Handle it here.
- *               ...
- *           }
- *       }
+ *         &#64;Override
+ *         public XWalkWebResourceResponseInternal shouldInterceptLoadRequest(XWalkViewInternal view,
+ *                 XWalkWebResourceRequestInternal request) {
+ *             // Handle it here.
+ *             // Use createXWalkWebResourceResponse instead of "new XWalkWebResourceResponse"
+ *             // to create the response.
+ *             // Similar with before, there are two function to use:
+ *             // 1) createXWalkWebResourceResponse(String mimeType, String encoding, InputStream data)
+ *             // 2) createXWalkWebResourceResponse(String mimeType, String encoding, InputStream data,
+ *             //             int statusCode, String reasonPhrase, Map&lt;String, String&gt; responseHeaders)
  *
- *       class MyUIClient extends XWalkUIClientInternal {
- *           MyUIClient(XWalkViewInternal view) {
- *               super(view);
- *           }
+ *             return createXWalkWebResourceResponse("text/html", "UTF-8", null);
+ *         }
+ *     }
  *
- *           &#64;Override
- *           void onFullscreenToggled(XWalkViewInternal view, String url) {
- *               // Handle it here.
- *               ...
- *           }
- *       }
+ *     private class MyUIClient extends XWalkUIClientInternal {
+ *         public MyUIClient(XWalkViewInternal view) {
+ *             super(view);
+ *         }
  *
- *       &#64;Override
- *       protected void onCreate(Bundle savedInstanceState) {
- *           mXwalkView = new XWalkViewInternal(this, null);
- *           setContentView(mXwalkView);
- *           mXwalkView.setResourceClient(new MyResourceClient(mXwalkView));
- *           mXwalkView.setUIClient(new MyUIClient(mXwalkView));
- *           mXwalkView.load("http://www.crosswalk-project.org", null);
- *       }
+ *         &#64;Override
+ *         public boolean onCreateWindowRequested(XWalkView view, InitiateBy initiator,
+ *                 ValueCallback&lt;XWalkViewInternal&gt; callback) {
+ *             XWalkViewInternal newView = new XWalkViewInternal(MainActivity.this);
+ *             callback.onReceiveValue(newView);
+ *             return true;
+ *         }
+ *     }
  *
- *       &#64;Override
- *       protected void onActivityResult(int requestCode, int resultCode, Intent data) {
- *           if (mXwalkView != null) {
- *               mXwalkView.onActivityResult(requestCode, resultCode, data);
- *           }
- *       }
+ *     &#64;Override
+ *     protected void onCreate(Bundle savedInstanceState) {
+ *         super.onCreate(savedInstanceState);
  *
- *       &#64;Override
- *       protected void onNewIntent(Intent intent) {
- *           if (mXwalkView != null) {
- *               mXwalkView.onNewIntent(intent);
- *           }
- *       }
- *   }
+ *         // Until onXWalkReady() is invoked, you should do nothing with the
+ *         // embedding API except the following:
+ *         // 1. Instantiate the XWalkView object
+ *         // 2. Call XWalkPreferences.setValue()
+ *         // 3. Call mXWalkView.setXXClient(), e.g., setUIClient
+ *         // 4. Call mXWalkView.setXXListener(), e.g., setDownloadListener
+ *         // 5. Call mXWalkView.addJavascriptInterface()
+ *
+ *         setContentView(R.layout.activity_main);
+ *         mXWalkView = (XWalkViewInternal) findViewById(R.id.xwalkview);
+ *         mXWalkView.setResourceClient(new MyResourceClient(mXWalkView));
+ *         mXWalkView.setUIClient(new MyUIClient(mXWalkView));
+ *     }
+ *
+ *     &#64;Override
+ *     public void onXWalkReady() {
+ *         // Do anyting with the embedding API
+ *
+ *         mXWalkView.loadUrl("https://crosswalk-project.org/");
+ *     }
+ *
+ *     &#64;Override
+ *     protected void onNewIntent(Intent intent) {
+ *         if (mXWalkView != null) {
+ *             mXWalkView.onNewIntent(intent);
+ *         }
+ *     }
+ * }
  * </pre>
  */
 @XWalkAPI(extendClass = FrameLayout.class, createExternally = true)
 public class XWalkViewInternal extends android.widget.FrameLayout {
 
-    private class XWalkActivityStateListener implements ActivityStateListener {
-        WeakReference<XWalkViewInternal> mXWalkViewRef;
-
-        XWalkActivityStateListener(XWalkViewInternal view) {
-            mXWalkViewRef = new WeakReference<XWalkViewInternal>(view);
-        }
-
-        @Override
-        public void onActivityStateChange(Activity activity, int newState) {
-            XWalkViewInternal view = mXWalkViewRef.get();
-            if (view == null) return;
-            view.onActivityStateChange(activity, newState);
-        }
-    }
-
     static final String PLAYSTORE_DETAIL_URI = "market://details?id=";
-    public static final int INPUT_FILE_REQUEST_CODE = 1;
     private static final String TAG = XWalkViewInternal.class.getSimpleName();
-    private static final String PATH_PREFIX = "file:";
-
-    private static boolean sInitialized = false;
 
     private XWalkContent mContent;
-    private Activity mActivity;
     private Context mContext;
+    private final XWalkHitTestResultInternal mXWalkHitTestResult;
     private boolean mIsHidden;
-    private XWalkActivityStateListener mActivityStateListener;
-    private ValueCallback<Uri> mFilePathCallback;
-    private String mCameraPhotoPath;
+    private XWalkExternalExtensionManagerInternal mExternalExtensionManager;
 
     /**
      * Normal reload mode as default.
@@ -184,7 +237,56 @@ public class XWalkViewInternal extends android.widget.FrameLayout {
      */
     @XWalkAPI
     public static final int RELOAD_IGNORE_CACHE = 1;
+    /**
+     * SurfaceView is the default compositing surface which has a bit performance advantage,
+     * such as it has less latency and uses less memory.
+     * @since 7.0
+     */
+    @XWalkAPI
+    public static final String SURFACE_VIEW = "SurfaceView";
+    /**
+     * Use TextureView as compositing surface which supports animation on the View.
+     * @since 7.0
+     */
+    @XWalkAPI
+    public static final String TEXTURE_VIEW = "TextureView";
 
+    // The moment when the XWalkViewBridge is added to the XWalkView, the screen flashes black. The
+    // reason is when the SurfaceView appears in the window the fist time, it requests the window's
+    // parameters changing by calling IWindowSession.relayout(). But if the window already has
+    // appropriate parameters, it will not refresh all the window's stuff and the screen will not
+    // blink. So we add a 0px SurfaceView at first. This will recreate the window before the
+    // activity is shown on the screen, and when the actual XWalkViewBridge is added, it will just
+    // continue to use the window with current parameters. The temporary SurfaceView can be removed
+    // at last.
+    /**
+     * Constructs a new XWalkView with a Context object.
+     * @param context a Context object used to access application assets.
+     * @since 6.0
+     */
+    @XWalkAPI(preWrapperLines = {
+                  "        super(${param1}, null);",
+                  "        SurfaceView surfaceView = new SurfaceView(${param1});",
+                  "        surfaceView.setLayoutParams(new ViewGroup.LayoutParams(0, 0));",
+                  "        addView(surfaceView);"},
+              postWrapperLines = {
+                  "        addView((FrameLayout)bridge, new FrameLayout.LayoutParams(",
+                  "                FrameLayout.LayoutParams.MATCH_PARENT,",
+                  "                FrameLayout.LayoutParams.MATCH_PARENT));",
+                  "        removeViewAt(0);",
+                  "        new org.xwalk.core.extension.XWalkExternalExtensionManagerImpl(this);"})
+    public XWalkViewInternal(Context context) {
+        super(context, null);
+
+        checkThreadSafety();
+        mContext = getContext();
+
+        mXWalkHitTestResult = new XWalkHitTestResultInternal();
+        initXWalkContent(null);
+    }
+
+    // A View is usually in edit mode when displayed within a developer tool, like Android Studio.
+    // So isInEditMode() should be used inside the corresponding XWalkView constructor.
     /**
      * Constructor for inflating via XML.
      * @param context  a Context object used to access application assets.
@@ -192,20 +294,34 @@ public class XWalkViewInternal extends android.widget.FrameLayout {
      * @since 1.0
      */
     @XWalkAPI(preWrapperLines = {
-                  "        super(${param1}, ${param2});"},
+                  "        super(${param1}, ${param2});",
+                  "        if (isInEditMode()) return;",
+                  "        if (${param2} != null)",
+                  "            mAnimatable = ${param2}.getAttributeValue(",
+                  "                    XWALK_ATTRS_NAMESPACE, ANIMATABLE);",
+                  "        SurfaceView surfaceView = new SurfaceView(${param1});",
+                  "        surfaceView.setLayoutParams(new ViewGroup.LayoutParams(0, 0));",
+                  "        addView(surfaceView);"},
               postWrapperLines = {
                   "        addView((FrameLayout)bridge, new FrameLayout.LayoutParams(",
                   "                FrameLayout.LayoutParams.MATCH_PARENT,",
-                  "                FrameLayout.LayoutParams.MATCH_PARENT));"})
+                  "                FrameLayout.LayoutParams.MATCH_PARENT));",
+                  "        removeViewAt(0);",
+                  "        new org.xwalk.core.extension.XWalkExternalExtensionManagerImpl(this);"},
+              postBridgeLines = {
+                  "        String animatable = null;",
+                  "        try {",
+                  "            animatable = (String) new ReflectField(wrapper, \"mAnimatable\").get();",
+                  "        } catch (RuntimeException e) {",
+                  "        }",
+                  "        initXWalkContent(animatable);"})
     public XWalkViewInternal(Context context, AttributeSet attrs) {
-        super(convertContext(context), attrs);
+        super(context, attrs);
 
         checkThreadSafety();
-        mActivity = (Activity) context;
         mContext = getContext();
 
-        init(getContext(), getActivity());
-        initXWalkContent(mContext, attrs);
+        mXWalkHitTestResult = new XWalkHitTestResultInternal();
     }
 
     /**
@@ -213,81 +329,29 @@ public class XWalkViewInternal extends android.widget.FrameLayout {
      * different from activity. In embedded mode, they're same.
      * @param context  a Context object used to access application assets
      * @param activity the activity for this XWalkViewInternal.
+     * @deprecated This method is no longer supported
      * @since 1.0
      */
+    @Deprecated
     @XWalkAPI(preWrapperLines = {
-                  "        super(${param1}, null);"},
+                  "        super(${param1}, null);",
+                  "        SurfaceView surfaceView = new SurfaceView(${param1});",
+                  "        surfaceView.setLayoutParams(new ViewGroup.LayoutParams(0, 0));",
+                  "        addView(surfaceView);"},
               postWrapperLines = {
                   "        addView((FrameLayout)bridge, new FrameLayout.LayoutParams(",
                   "                FrameLayout.LayoutParams.MATCH_PARENT,",
-                  "                FrameLayout.LayoutParams.MATCH_PARENT));"})
+                  "                FrameLayout.LayoutParams.MATCH_PARENT));",
+                  "        removeViewAt(0);",
+                  "        new org.xwalk.core.extension.XWalkExternalExtensionManagerImpl(this);"})
     public XWalkViewInternal(Context context, Activity activity) {
-        super(convertContext(context), null);
+        super(context, null);
 
         checkThreadSafety();
-        // Make sure mActivity is initialized before calling 'init' method.
-        mActivity = activity;
         mContext = getContext();
 
-        init(getContext(), getActivity());
-        initXWalkContent(mContext, null);
-    }
-
-    private static Context convertContext(Context context) {
-        Context ret = context;
-        Context bridgeContext = null;
-        if (XWalkCoreBridge.getInstance() != null) {
-            bridgeContext = XWalkCoreBridge.getInstance().getContext();
-        }
-        if (bridgeContext == null || context == null ||
-                bridgeContext.getPackageName().equals(context.getPackageName())) {
-            // Not acrossing package
-            ret = context;
-        } else {
-            ret = new MixedContext(bridgeContext, context);
-        }
-        return ret;
-    }
-
-    private static void init(Context context, Activity activity) {
-        if (sInitialized) return;
-
-        XWalkViewDelegate.loadXWalkLibrary(context, activity);
-
-        // Initialize the ActivityStatus. This is needed and used by many internal
-        // features such as location provider to listen to activity status.
-        ApplicationStatusManager.init(activity.getApplication());
-
-        // Auto detect network connectivity state.
-        // setAutoDetectConnectivityState() need to be called before activity started.
-        NetworkChangeNotifier.init(activity);
-        NetworkChangeNotifier.setAutoDetectConnectivityState(true);
-
-        // We will miss activity onCreate() status in ApplicationStatusManager,
-        // informActivityStarted() will simulate these callbacks.
-        ApplicationStatusManager.informActivityStarted(activity);
-
-        XWalkViewDelegate.init(context);
-
-        sInitialized = true;
-    }
-
-    /**
-     * Get the current activity passed from callers. It's never null.
-     * @return the activity instance passed from callers.
-     *
-     * @hide
-     */
-    public Activity getActivity() {
-        if (mActivity != null) {
-            return mActivity;
-        } else if (getContext() instanceof Activity) {
-            return (Activity)getContext();
-        }
-
-        // Never achieve here.
-        assert(false);
-        return null;
+        mXWalkHitTestResult = new XWalkHitTestResultInternal();
+        initXWalkContent(null);
     }
 
     // TODO(yongsheng): we should remove this since we have getContext()?
@@ -302,39 +366,41 @@ public class XWalkViewInternal extends android.widget.FrameLayout {
         mContent.supplyContentsForPopup(newXWalkView == null ? null : newXWalkView.mContent);
     }
 
-    private void initXWalkContent(Context context, AttributeSet attrs) {
-        mActivityStateListener = new XWalkActivityStateListener(this);
-        ApplicationStatus.registerStateListenerForActivity(
-            mActivityStateListener, getActivity());
+    protected void initXWalkContent(String animatable) {
+        XWalkViewDelegate.init(null, mContext);
+
+        if (mContext instanceof Activity) {
+            ApplicationStatusManager.informActivityStarted((Activity) mContext);
+        }
+
+        if (!CommandLine.getInstance().hasSwitch("disable-xwalk-extensions")) {
+            BuiltinXWalkExtensions.load(mContext);
+        } else {
+            XWalkPreferencesInternal.setValue(XWalkPreferencesInternal.ENABLE_EXTENSIONS, false);
+        }
 
         mIsHidden = false;
-        mContent = new XWalkContent(context, attrs, this);
-        addView(mContent,
-                new FrameLayout.LayoutParams(
-                        FrameLayout.LayoutParams.MATCH_PARENT,
-                        FrameLayout.LayoutParams.MATCH_PARENT));
+        mContent = new XWalkContent(mContext, animatable, this);
 
-
+        // If XWalkView was created in onXWalkReady(), and the activity which owns
+        // XWalkView was destroyed, pauseTimers() will be invoked. Reentry the activity,
+        // resumeTimers() will not be invoked since onResume() was invoked before
+        // XWalkView creation. So to invoke resumeTimers() explicitly here.
+        mContent.resumeTimers();
         // Set default XWalkClientImpl.
         setXWalkClient(new XWalkClient(this));
         // Set default XWalkWebChromeClient and DownloadListener. The default actions
         // are provided via the following clients if special actions are not needed.
-        setXWalkWebChromeClient(new XWalkWebChromeClient(this));
+        setXWalkWebChromeClient(new XWalkWebChromeClient());
 
         // Set with internal implementation. Could be overwritten by embedders'
         // setting.
         setUIClient(new XWalkUIClientInternal(this));
         setResourceClient(new XWalkResourceClientInternal(this));
 
-        setDownloadListener(new XWalkDownloadListenerImpl(context));
-        setNavigationHandler(new XWalkNavigationHandlerImpl(context));
-        setNotificationService(new XWalkNotificationServiceImpl(context, this));
-
-        if (!CommandLine.getInstance().hasSwitch("disable-xwalk-extensions")) {
-            BuiltinXWalkExtensions.load(context, getActivity());
-        } else {
-            XWalkPreferencesInternal.setValue(XWalkPreferencesInternal.ENABLE_EXTENSIONS, false);
-        }
+        setDownloadListener(new XWalkDownloadListenerImpl(mContext));
+        setNavigationHandler(new XWalkNavigationHandlerImpl(mContext));
+        setNotificationService(new XWalkNotificationServiceImpl(mContext, this));
 
         XWalkPathHelper.initialize();
         XWalkPathHelper.setCacheDirectory(
@@ -355,7 +421,7 @@ public class XWalkViewInternal extends android.widget.FrameLayout {
      * If url is null or empty and content is null or empty, then this function
      * will do nothing.
      * If content is not null, load the web page/app from the content.
-     * If content is not null and the url is not set, return "about:blank" ifi
+     * If content is not null and the url is not set, return "about:blank" if
      * calling {@link XWalkViewInternal#getUrl()}.
      * If content is null, try to load the content from the url.
      *
@@ -363,13 +429,168 @@ public class XWalkViewInternal extends android.widget.FrameLayout {
      * It can also load files from Android assets, e.g. 'file:///android_asset/'.
      * @param url the url for web page/app.
      * @param content the content for the web page/app. Could be empty.
+     * @deprecated This method is deprecated, please use
+     *             {@link XWalkViewInternal#loadUrl},
+     *             {@link XWalkViewInternal#loadData} or
+     *             {@link XWalkViewInternal#loadDataWithBaseURL} instead.
      * @since 1.0
      */
+    @Deprecated
     @XWalkAPI
     public void load(String url, String content) {
+        load(url, content, null);
+    }
+
+    /**
+     * Load a web page/app from a given base URL or a content with specified HTTP headers
+     * @param url the url for web page/app.
+     * @param content the content for the web page/app. Could be empty.
+     * @param headers the additional HTTP headers
+     * @deprecated This method is deprecated, please use
+     *             {@link XWalkViewInternal#loadUrl},
+     *             {@link XWalkViewInternal#loadData} or
+     *             {@link XWalkViewInternal#loadDataWithBaseURL} instead.
+     * @since 6.0
+     */
+    @Deprecated
+    @XWalkAPI
+    public void load(String url, String content, Map<String, String> headers) {
         if (mContent == null) return;
         checkThreadSafety();
-        mContent.loadUrl(url, content);
+        // If both |data| and |content| are null/empty, do nothing.
+        if ((url == null || url.isEmpty()) &&
+                (content == null || content.isEmpty())) {
+            return;
+        }
+        if (url != null && !url.isEmpty() &&
+                TextUtils.equals(url, getUrl())) {
+            // Backwards compatibility with earlier Crosswalk versions: if
+            // we're trying to load the same URL, even if |content| is
+            // different, just reload.
+            reload(XWalkViewInternal.RELOAD_NORMAL);
+        } else {
+            // If we're only passing |url|, load it like a regular loadUrl()
+            // call, otherwise call loadDataWithBaseURL() and use |url| as the
+            // base URL.
+            if (content == null || content.isEmpty()) {
+                mContent.loadUrl(url, headers);
+            } else {
+                mContent.loadDataWithBaseURL(url, content, "text/html", null, null);
+            }
+        }
+    }
+
+    /**
+     * Loads the given data into this WebView using a 'data' scheme URL.
+     *
+     * Note that JavaScript's same origin policy means that script running in a
+     * page loaded using this method will be unable to access content loaded
+     * using any scheme other than 'data', including 'http(s)'. To avoid this
+     * restriction, use {@link XWalkViewInternal#loadDataWithBaseURL} with an
+     * appropriate base URL.
+     *
+     * The encoding parameter specifies whether the data is base64 or URL
+     * encoded. If the data is base64 encoded, the value of the encoding
+     * parameter must be 'base64'. For all other values of the parameter,
+     * including null, it is assumed that the data uses ASCII encoding for
+     * octets inside the range of safe URL characters and use the standard %xx
+     * hex encoding of URLs for octets outside that range. For example, '#',
+     * '%', '\', '?' should be replaced by %23, %25, %27, %3f respectively.
+     *
+     * The 'data' scheme URL formed by this method uses the default US-ASCII
+     * charset. If you need need to set a different charset, you should form a
+     * 'data' scheme URL which explicitly specifies a charset parameter in the
+     * mediatype portion of the URL and call {@link
+     * XWalkViewInternal#loadUrl(String)} instead. Note that the charset
+     * obtained from the mediatype portion of a data URL always overrides that
+     * specified in the HTML or XML document itself.
+     *
+     * @param data a String of data in the given encoding
+     * @param mimeType the MIME type of the data, e.g. 'text/html'
+     * @param encoding the encoding of the data
+     * @since 8.0
+     */
+    @XWalkAPI
+    public void loadData(String data, String mimeType, String encoding) {
+        if (mContent == null) return;
+        checkThreadSafety();
+        mContent.loadData(data, mimeType, encoding);
+    }
+
+    /**
+     * Loads the given data into this XWalkView, using baseUrl as the base URL
+     * for the content. The base URL is used both to resolve relative URLs and
+     * when applying JavaScript's same origin policy. The historyUrl is used
+     * for the history entry.
+     *
+     * Note that content specified in this way can access local device files
+     * (via 'file' scheme URLs) only if baseUrl specifies a scheme other than
+     * 'http', 'https', 'ftp', 'ftps', 'about' or 'javascript'.
+     *
+     * If the base URL uses the data scheme, this method is equivalent to
+     * calling {@link XWalkViewInternal#loadData} and the historyUrl is
+     * ignored, and the data will be treated as part of a data: URL. If the
+     * base URL uses any other scheme, then the data will be loaded into the
+     * WebView as a plain string (i.e. not part of a data URL) and any
+     * URL-encoded entities in the string will not be decoded.
+     *
+     * Note that the baseUrl is sent in the 'Referer' HTTP header when
+     * requesting subresources (images, etc.) of the page loaded using this method.
+     *
+     * @param baseUrl the URL to use as the page's base URL. If null defaults to
+     *                'about:blank'.
+     * @param data a String of data in the given encoding
+     * @param mimeType the MIMEType of the data, e.g. 'text/html'. If null,
+     *                 defaults to 'text/html'.
+     * @param encoding the encoding of the data
+     * @param historyUrl the URL to use as the history entry. If null defaults
+     *                   to 'about:blank'. If non-null, this must be a valid URL.
+     * @since 8.0
+     */
+    @XWalkAPI
+    public void loadDataWithBaseURL(final String baseUrl, final String data, final String mimeType,
+            final String encoding, final String historyUrl) {
+        if (mContent == null) return;
+        checkThreadSafety();
+        mContent.loadDataWithBaseURL(baseUrl, data, mimeType, encoding, historyUrl);
+    }
+
+    /**
+     * Loads the given URL.
+     *
+     * It supports URL schemes like 'http:', 'https:' and 'file:'.
+     * It can also load files from Android assets, e.g. 'file:///android_asset/'.
+     *
+     * @param url the url for web page/app.
+     * @since 8.0
+     */
+    @XWalkAPI
+    public void loadUrl(String url) {
+        if (mContent == null) return;
+        checkThreadSafety();
+        mContent.loadUrl(url);
+    }
+
+    /**
+     * Loads the given URL.
+     *
+     * It supports URL schemes like 'http:', 'https:' and 'file:'.
+     * It can also load files from Android assets, e.g. 'file:///android_asset/'.
+     *
+     * @param url the url for web page/app.
+     * @param additionalHttpHeaders the additional headers to be used in the
+     *            HTTP request for this URL, specified as a map from name to
+     *            value. Note that if this map contains any of the headers
+     *            that are set by default by this XWalkView, such as those
+     *            controlling caching, accept types or the User-Agent, their
+     *            values may be overriden by this XWalkView's defaults.
+     * @since 8.0
+     */
+    @XWalkAPI
+    public void loadUrl(String url, Map<String, String> additionalHttpHeaders) {
+        if (mContent == null) return;
+        checkThreadSafety();
+        mContent.loadUrl(url, additionalHttpHeaders);
     }
 
     /**
@@ -428,6 +649,33 @@ public class XWalkViewInternal extends android.widget.FrameLayout {
     }
 
     /**
+    * Get the resource type of hit place in the current page.
+    * @return the result of the hit place in the current page.
+    * @since 7.0
+    */
+    @XWalkAPI
+    public XWalkHitTestResultInternal getHitTestResult() {
+        if (mContent == null)  return null;
+        checkThreadSafety();
+        XWalkContent.HitTestData data = mContent.getLastHitTestResult();
+        mXWalkHitTestResult.setType(data.hitTestResultType);
+        mXWalkHitTestResult.setExtra(data.hitTestResultExtraData);
+        return mXWalkHitTestResult;
+    }
+
+    /**
+     * Get the content height of current web page/app.
+     * NOTE: When page finished loading, it's content size info may not be updated.
+     * Pls wait for a while for info updating.
+     * @return the height of current web page/app in Css coordinate.
+     * @since 7.0
+     */
+    @XWalkAPI
+    public int getContentHeight() {
+        return mContent.getContentHeight();
+    }
+
+    /**
      * Get the title of current web page/app. This may be different from what's passed
      * by caller.
      * @return the title for current web page/app.
@@ -473,11 +721,25 @@ public class XWalkViewInternal extends android.widget.FrameLayout {
      * @param name the name injected in JavaScript.
      * @since 1.0
      */
-    @XWalkAPI
+    @XWalkAPI(reservable = true)
     public void addJavascriptInterface(Object object, String name) {
         if (mContent == null) return;
         checkThreadSafety();
         mContent.addJavascriptInterface(object, name);
+    }
+
+    /**
+     * Removes a previously injected Java object from this XWalkView. Note that
+     * the removal will not be reflected in JavaScript until the page is next
+     * (re)loaded. See {@link #addJavascriptInterface}.
+     * @param name the name used to expose the object in JavaScript
+     * @since 7.0
+     */
+    @XWalkAPI(reservable = true)
+    public void removeJavascriptInterface(String name) {
+        if (mContent == null) return;
+        checkThreadSafety();
+        mContent.removeJavascriptInterface(name);
     }
 
     /**
@@ -504,6 +766,19 @@ public class XWalkViewInternal extends android.widget.FrameLayout {
         if (mContent == null) return;
         checkThreadSafety();
         mContent.clearCache(includeDiskFiles);
+    }
+
+    /**
+     * Clear the resource cache. Note that it only clear the cache for the specified
+     * url.
+     * @param url indicate which cache will be cleared.
+     * @since 6.0
+     */
+    @XWalkAPI
+    public void clearCacheForSingleFile(String url) {
+        if (mContent == null) return;
+        checkThreadSafety();
+        mContent.clearCacheForSingleFile(url);
     }
 
     /**
@@ -606,6 +881,18 @@ public class XWalkViewInternal extends android.widget.FrameLayout {
     }
 
     /**
+     * Start another activity to get some data back.
+     * Here will start from the current XWalkView Activity,
+     * but XWalkView embedder can override this API to do their additional job.
+     * @deprecated This method is no longer supported
+     */
+    @Deprecated
+    @XWalkAPI
+    public void startActivityForResult(Intent intent, int requestCode, Bundle options) {
+        throw new ActivityNotFoundException("This method is no longer supported");
+    }
+
+    /**
      * Pass through activity result to XWalkViewInternal. Many internal facilities need this
      * to handle activity result like JavaScript dialog, Crosswalk extensions, etc.
      * See <a href="http://developer.android.com/reference/android/app/Activity.html">
@@ -613,38 +900,14 @@ public class XWalkViewInternal extends android.widget.FrameLayout {
      * @param requestCode passed from android.app.Activity.onActivityResult().
      * @param resultCode passed from android.app.Activity.onActivityResult().
      * @param data passed from android.app.Activity.onActivityResult().
+     * @deprecated This method is no longer supported
      * @since 1.0
      */
+    @Deprecated
     @XWalkAPI
     public void onActivityResult(int requestCode, int resultCode, Intent data) {
-        if (mContent == null) return;
-        if(requestCode == INPUT_FILE_REQUEST_CODE && mFilePathCallback != null) {
-            Uri results = null;
-
-            // Check that the response is a good one
-            if(Activity.RESULT_OK == resultCode) {
-                if(data == null) {
-                    // If there is not data, then we may have taken a photo
-                    if(mCameraPhotoPath != null) {
-                        results = Uri.parse(mCameraPhotoPath);
-                    }
-                } else {
-                    String dataString = data.getDataString();
-                    if (dataString != null) {
-                        results = Uri.parse(dataString);
-                    }
-                    deleteImageFile();
-                }
-            } else if (Activity.RESULT_CANCELED == resultCode) {
-                deleteImageFile();
-            }
-
-            mFilePathCallback.onReceiveValue(results);
-            mFilePathCallback = null;
-            return;
-        }
-        mContent.onActivityResult(requestCode, resultCode, data);
     }
+
 
     /**
      * Pass through intents to XWalkViewInternal. Many internal facilities need this
@@ -652,11 +915,17 @@ public class XWalkViewInternal extends android.widget.FrameLayout {
      * <a href="http://developer.android.com/reference/android/app/Activity.html">
      * android.app.Activity.onNewIntent()</a>.
      * @param intent passed from android.app.Activity.onNewIntent().
+     * @return true if this intent is handled
      * @since 1.0
      */
     @XWalkAPI
     public boolean onNewIntent(Intent intent) {
         if (mContent == null) return false;
+
+        if (mExternalExtensionManager != null) {
+            mExternalExtensionManager.onNewIntent(intent);
+        }
+
         return mContent.onNewIntent(intent);
     }
 
@@ -664,6 +933,7 @@ public class XWalkViewInternal extends android.widget.FrameLayout {
      * Save current internal state of this XWalkViewInternal. This can help restore this state
      * afterwards restoring.
      * @param outState the saved state for restoring.
+     * @return true if the state is saved
      * @since 1.0
      */
     @XWalkAPI
@@ -691,10 +961,9 @@ public class XWalkViewInternal extends android.widget.FrameLayout {
      * @return the string of API level.
      * @since 1.0
      */
-    // TODO(yongsheng): make it static?
     @XWalkAPI
     public String getAPIVersion() {
-        return "5.0";
+        return String.valueOf(XWalkCoreVersion.API_VERSION) + ".0";
     }
 
     /**
@@ -702,7 +971,6 @@ public class XWalkViewInternal extends android.widget.FrameLayout {
      * @return the string of Crosswalk.
      * @since 1.0
      */
-    // TODO(yongsheng): make it static?
     @XWalkAPI
     public String getXWalkVersion() {
         if (mContent == null) return null;
@@ -715,7 +983,7 @@ public class XWalkViewInternal extends android.widget.FrameLayout {
      * @param client the XWalkUIClientInternal defined by callers.
      * @since 1.0
      */
-    @XWalkAPI
+    @XWalkAPI(reservable = true)
     public void setUIClient(XWalkUIClientInternal client) {
         if (mContent == null) return;
         checkThreadSafety();
@@ -728,7 +996,7 @@ public class XWalkViewInternal extends android.widget.FrameLayout {
      * @param client the XWalkResourceClientInternal defined by callers.
      * @since 1.0
      */
-    @XWalkAPI
+    @XWalkAPI(reservable = true)
     public void setResourceClient(XWalkResourceClientInternal client) {
         if (mContent == null) return;
         checkThreadSafety();
@@ -747,16 +1015,26 @@ public class XWalkViewInternal extends android.widget.FrameLayout {
     }
 
     /**
-     * override setLayerType
+     * Set origin access whitelist.
+     * @param url the url for accesssing whitelist.
+     * @param patterns representing hosts which the application should be able to access.
+     * @since 6.0
      */
-    @Override
     @XWalkAPI
+    public void setOriginAccessWhitelist(String url, String[] patterns) {
+        if (mContent == null) return;
+        checkThreadSafety();
+        mContent.setOriginAccessWhitelist(url, patterns);
+    }
+
+    // We can't let XWalkView's setLayerType call to this via reflection as this method
+    // may be called in XWalkView constructor but the XWalkView is not ready yet and then
+    // UnsupportedOperationException is thrown, see XWALK-5021/XWALK-5047.
+    // We only support hardware acceleration in XWalkView, so setLayerType should be noop
+    @Override
+    @XWalkAPI(disableReflectMethod = true,
+              preWrapperLines = {"        return;"})
     public void setLayerType(int layerType, Paint paint) {
-        if (layerType != LAYER_TYPE_SOFTWARE) {
-           super.setLayerType(layerType, paint);
-        } else {
-            Log.w(TAG, "LAYER_TYPE_SOFTWARE is not supported by XwalkView");
-        }
     }
 
      /**
@@ -766,11 +1044,24 @@ public class XWalkViewInternal extends android.widget.FrameLayout {
      */
     @XWalkAPI
     public void setUserAgentString(String userAgent) {
-        XWalkSettings settings = getSettings();
+        XWalkSettingsInternal settings = getSettings();
         if (settings == null) return;
         checkThreadSafety();
         settings.setUserAgentString(userAgent);
     }
+
+      /**
+      * Get the user agent of web page/app.
+      * @return the XWalkView's user-agent string.
+      * @since 6.0
+      */
+     @XWalkAPI
+     public String getUserAgentString() {
+         XWalkSettingsInternal settings = getSettings();
+         if (settings == null) return null;
+         checkThreadSafety();
+         return settings.getUserAgentString();
+     }
 
      /**
      * Set the accept languages of XWalkView.
@@ -779,17 +1070,31 @@ public class XWalkViewInternal extends android.widget.FrameLayout {
      */
     @XWalkAPI
     public void setAcceptLanguages(final String acceptLanguages) {
-        XWalkSettings settings = getSettings();
+        XWalkSettingsInternal settings = getSettings();
         if (settings == null) return;
         checkThreadSafety();
         settings.setAcceptLanguages(acceptLanguages);
     }
 
-    // TODO(yongsheng): this is not public.
     /**
-     * @hide
+     * Capture a bitmap of visible content.
+     * @param callback callback to call when the bitmap capture is done.
+     * @since 6.0
      */
-    public XWalkSettings getSettings() {
+    @XWalkAPI
+    public void captureBitmapAsync(XWalkGetBitmapCallbackInternal callback) {
+        if (mContent == null) return;
+        checkThreadSafety();
+        mContent.captureBitmapAsync(callback);
+    }
+
+    /**
+     * Get XWalkSettings
+     * @return the XWalkSettings object.
+     * @since 6.0
+     */
+    @XWalkAPI
+    public XWalkSettingsInternal getSettings() {
         if (mContent == null) return null;
         checkThreadSafety();
         return mContent.getSettings();
@@ -798,6 +1103,8 @@ public class XWalkViewInternal extends android.widget.FrameLayout {
     /**
      * This method is used by Cordova for hacking.
      * TODO(yongsheng): remove this and related test cases?
+     *
+     * @param networkUp whether network is available
      */
     @XWalkAPI
     public void setNetworkAvailable(boolean networkUp) {
@@ -907,6 +1214,19 @@ public class XWalkViewInternal extends android.widget.FrameLayout {
     }
 
     /**
+     * Sets the initial scale for this XWalkView.
+     * @param scaleInPercent the initial scale in percent.
+     * @since 6.0
+     */
+    @XWalkAPI
+    public void setInitialScale(int scaleInPercent) {
+        checkThreadSafety();
+        XWalkSettingsInternal settings = getSettings();
+        if (settings == null) return;
+        settings.setInitialPageScale(scaleInPercent);
+    }
+
+    /**
      * It's used for Presentation API.
      * @hide
      */
@@ -947,8 +1267,6 @@ public class XWalkViewInternal extends android.widget.FrameLayout {
 
     void destroy() {
         if (mContent == null) return;
-        ApplicationStatus.unregisterActivityStateListener(mActivityStateListener);
-        mActivityStateListener = null;
         mContent.destroy();
         disableRemoteDebugging();
     }
@@ -969,12 +1287,6 @@ public class XWalkViewInternal extends android.widget.FrameLayout {
         }
     }
 
-    boolean isOwnerActivityRunning() {
-        int status = ApplicationStatus.getStateForActivity(getActivity());
-        if (status == ActivityState.DESTROYED) return false;
-        return true;
-    }
-
     void navigateTo(int offset) {
         if (mContent == null) return;
         mContent.navigateTo(offset);
@@ -982,6 +1294,18 @@ public class XWalkViewInternal extends android.widget.FrameLayout {
 
     void setOverlayVideoMode(boolean enabled) {
         mContent.setOverlayVideoMode(enabled);
+    }
+
+    /**
+     * Return the icon which current page has.
+     * @return the favicon of current web page/app.
+     * @since 6.0
+     */
+    @XWalkAPI
+    public Bitmap getFavicon() {
+        if (mContent == null) return null;
+        checkThreadSafety();
+        return mContent.getFavicon();
     }
 
     /**
@@ -994,6 +1318,58 @@ public class XWalkViewInternal extends android.widget.FrameLayout {
     public void setZOrderOnTop(boolean onTop) {
         if (mContent == null) return;
         mContent.setZOrderOnTop(onTop);
+    }
+
+    /**
+     * Removes the autocomplete popup from the currently focused form field, if present.
+     * Note this only affects the display of the autocomplete popup, it does not remove
+     * any saved form data from this WebView's store.
+     * This is a poorly named method, but we keep it for historical reasons.
+     * @since 6.0
+     */
+    @XWalkAPI
+    public void clearFormData() {
+        if (mContent == null) return;
+        checkThreadSafety();
+        mContent.hideAutofillPopup();
+    }
+
+    /**
+     * Set the enabled state of this view.
+     * @param visibility One of VISIBLE, INVISIBLE, or GONE.
+     * @since 6.0
+     */
+    @XWalkAPI(disableReflectMethod = true,
+              preWrapperLines = {
+                  "        if (visibility == View.INVISIBLE) visibility = View.GONE;",
+                  "        super.setVisibility(visibility);",
+                  "        setXWalkViewInternalVisibility(visibility);",
+                  "        setSurfaceViewVisibility(visibility);"})
+    public void setVisibility(int visibility) {
+    }
+
+    /**
+     * Set the enabled state of SurfaceView.
+     * @param visibility One of VISIBLE, INVISIBLE, or GONE.
+     * @since 6.0
+     */
+    @XWalkAPI(reservable = true)
+    public void setSurfaceViewVisibility(int visibility) {
+        if (mContent == null) return;
+        checkThreadSafety();
+        mContent.setVisibility(visibility);
+    }
+
+    /**
+     * Set the enabled state of XWalkViewInternal.
+     * @param visibility One of VISIBLE, INVISIBLE, or GONE.
+     * @since 6.0
+     */
+    @XWalkAPI(reservable = true)
+    public void setXWalkViewInternalVisibility(int visibility) {
+        if (mContent == null) return;
+        checkThreadSafety();
+        super.setVisibility(visibility);
     }
 
     // Below methods are for test shell and instrumentation tests.
@@ -1022,7 +1398,7 @@ public class XWalkViewInternal extends android.widget.FrameLayout {
      * @param listener an implementation of XWalkDownloadListenerInternal
      * @since 5.0
      */
-    @XWalkAPI
+    @XWalkAPI(reservable = true)
     public void setDownloadListener(XWalkDownloadListenerInternal listener) {
         if (mContent == null) return;
         checkThreadSafety();
@@ -1068,114 +1444,320 @@ public class XWalkViewInternal extends android.widget.FrameLayout {
         return super.dispatchKeyEvent(event);
     }
 
-    private void onActivityStateChange(Activity activity, int newState) {
-        assert(getActivity() == activity);
-        switch (newState) {
-            case ActivityState.STARTED:
-                onShow();
-                break;
-            case ActivityState.PAUSED:
-                pauseTimers();
-                break;
-            case ActivityState.RESUMED:
-                resumeTimers();
-                break;
-            case ActivityState.DESTROYED:
-                onDestroy();
-                break;
-            case ActivityState.STOPPED:
-                onHide();
-                break;
-            default:
-                break;
-        }
-    }
-
-    /**
-     * Tell the client to show a file chooser.
-     * @param uploadFile the callback class to handle the result from caller. It MUST
-     *        be invoked in all cases. Leave it not invoked will block all following
-     *        requests to open file chooser.
-     * @param acceptType value of the 'accept' attribute of the input tag associated
-     *        with this file picker.
-     * @param capture value of the 'capture' attribute of the input tag associated
-     *        with this file picker
-     */
-    public boolean showFileChooser(ValueCallback<Uri> uploadFile, String acceptType,
-            String capture) {
-        mFilePathCallback = uploadFile;
-
-        Intent takePictureIntent = new Intent(MediaStore.ACTION_IMAGE_CAPTURE);
-        if (takePictureIntent.resolveActivity(getActivity().getPackageManager()) != null) {
-            // Create the File where the photo should go
-            File photoFile = createImageFile();
-            // Continue only if the File was successfully created
-            if (photoFile != null) {
-                mCameraPhotoPath = PATH_PREFIX + photoFile.getAbsolutePath();
-                takePictureIntent.putExtra("PhotoPath", mCameraPhotoPath);
-                takePictureIntent.putExtra(MediaStore.EXTRA_OUTPUT,
-                        Uri.fromFile(photoFile));
-            } else {
-                takePictureIntent = null;
-            }
-        }
-
-        Intent contentSelectionIntent = new Intent(Intent.ACTION_GET_CONTENT);
-        contentSelectionIntent.addCategory(Intent.CATEGORY_OPENABLE);
-        contentSelectionIntent.setType("*/*");
-
-        Intent camcorder = new Intent(MediaStore.ACTION_VIDEO_CAPTURE);
-        Intent soundRecorder = new Intent(
-                MediaStore.Audio.Media.RECORD_SOUND_ACTION);
-        ArrayList<Intent> extraIntents = new ArrayList<Intent>();
-        if (takePictureIntent != null) extraIntents.add(takePictureIntent);
-        extraIntents.add(camcorder);
-        extraIntents.add(soundRecorder);
-
-        Intent chooserIntent = new Intent(Intent.ACTION_CHOOSER);
-        chooserIntent.putExtra(Intent.EXTRA_INTENT, contentSelectionIntent);
-        chooserIntent.putExtra(Intent.EXTRA_TITLE, "Choose an action");
-        chooserIntent.putExtra(Intent.EXTRA_INITIAL_INTENTS,
-                extraIntents.toArray(new Intent[] { }));
-        getActivity().startActivityForResult(chooserIntent, INPUT_FILE_REQUEST_CODE);
-        return true;
-    }
-
-    private File createImageFile() {
-        // FIXME: If the external storage state is not "MEDIA_MOUNTED", we need to get
-        // other volume paths by "getVolumePaths()" when it was exposed.
-        String state = Environment.getExternalStorageState();
-        if (!state.equals(Environment.MEDIA_MOUNTED)) {
-            Log.e(TAG, "External storage is not mounted.");
-            return null;
-        }
-
-        // Create an image file name
-        String timeStamp = new SimpleDateFormat("yyyyMMdd_HHmmss").format(new Date());
-        String imageFileName = "JPEG_" + timeStamp + "_";
-        File storageDir = Environment.getExternalStoragePublicDirectory(
-                Environment.DIRECTORY_PICTURES);
-        if (!storageDir.exists()) storageDir.mkdirs();
-        try {
-            return File.createTempFile(imageFileName, ".jpg", storageDir);
-        } catch (IOException ex) {
-            // Error occurred while creating the File
-            Log.e(TAG, "Unable to create Image File", ex);
-        }
-        return null;
-    }
-
-    private boolean deleteImageFile() {
-        if (mCameraPhotoPath == null || !mCameraPhotoPath.contains(PATH_PREFIX)) {
-            return false;
-        }
-        String filePath = mCameraPhotoPath.split(PATH_PREFIX)[1];
-        File file = new File(filePath);
-        return file.delete();
-    }
-
     // For instrumentation test.
     public ContentViewCore getXWalkContentForTest() {
         return mContent.getContentViewCoreForTest();
+    }
+
+    // This is used to call back to XWalkView's performLongClick() so that developer can
+    // override performLongClick() or setOnLongClickListener to disable copy/paste
+    // action bar.
+    @XWalkAPI(delegate = true,
+              preWrapperLines = {"return performLongClick();"})
+    public boolean performLongClickDelegate(){
+        return false;
+    }
+
+    @XWalkAPI(delegate = true,
+              preWrapperLines = {"return onTouchEvent(event);"})
+    public boolean onTouchEventDelegate(MotionEvent event){
+        return false;
+    }
+
+    // Usually super.onTouchEvent is called within XWalkView.onTouchEvent override
+    // This is used as our default touch event handler.
+    @Override
+    @XWalkAPI
+    public boolean onTouchEvent(MotionEvent event) {
+        return mContent.onTouchEvent(event);
+    }
+
+    // Use delegate to access XWalkView's protected method
+    @XWalkAPI(delegate = true,
+              preWrapperLines = {"onScrollChanged(l, t, oldl, oldt);"})
+    public void onScrollChangedDelegate(int l, int t, int oldl, int oldt) {
+    }
+
+    @XWalkAPI(delegate = true,
+              preWrapperLines = {"onFocusChanged(gainFocus, direction, previouslyFocusedRect);"})
+    public void onFocusChangedDelegate(boolean gainFocus, int direction, Rect previouslyFocusedRect) {
+    }
+
+    @XWalkAPI(delegate = true,
+              preWrapperLines = {"onOverScrolled(scrollX, scrollY, clampedX, clampedY);"})
+    public void onOverScrolledDelegate(int scrollX, int scrollY, boolean clampedX, boolean clampedY) {
+    }
+
+    // Override XWalkView.setOnTouchListener to install the listener to ContentView
+    // therefore touch event intercept through onTouchListener is available on XWalkView.
+    @Override
+    @XWalkAPI
+    public void setOnTouchListener(OnTouchListener l) {
+        mContent.setOnTouchListener(l);
+    }
+
+    @Override
+    @XWalkAPI
+    public void scrollTo(int x, int y) {
+        mContent.scrollTo(x, y);
+    }
+
+    @Override
+    @XWalkAPI
+    public void scrollBy(int x, int y) {
+        mContent.scrollBy(x, y);
+    }
+
+    /**
+     * Scroll the view with standard behaviour for scrolling beyond the normal content boundaries.
+     * @param deltaX scroll delta distance on the horizontal orientation.
+     * @param deltaY scroll delta distance on the vertical orientation.
+     * @param scrollX current view offset on the horizontal orientation.
+     * @param scrollY current view offset on the vertical orientation.
+     * @param scrollRangeX the right boundaries of the view.
+     * @param scrollRangeY the bottom boundaries of the view.
+     * @param maxOverScrollX the max distance the view could over scrolled on the horizontal orientation.
+     * @param maxOverScrollY the max distance the view could over scrolled on the vertical orientation.
+     * @param isTouchEvent whether there is touch event.
+     * @return return whether the scroll reach boundaries and triage over scroll event.
+     * @since 6.0
+     */
+    @Override
+    @XWalkAPI
+    // NOTE: This API implementation is almost the same as the parent, but our onOverScrolled couldn't
+    //       invoke scrollTo (because the view scroll is async in XWalkView and it may cause crash).
+    protected boolean overScrollBy(int deltaX, int deltaY, int scrollX, int scrollY,
+                                int scrollRangeX, int scrollRangeY, int maxOverScrollX,
+                                int maxOverScrollY, boolean isTouchEvent) {
+        final int overScrollMode = super.getOverScrollMode();
+        final boolean canScrollHorizontal =
+                computeHorizontalScrollRange() > computeHorizontalScrollExtent();
+        final boolean canScrollVertical =
+                computeVerticalScrollRange() > computeVerticalScrollExtent();
+        final boolean overScrollHorizontal = overScrollMode == OVER_SCROLL_ALWAYS ||
+                (overScrollMode == OVER_SCROLL_IF_CONTENT_SCROLLS && canScrollHorizontal);
+        final boolean overScrollVertical = overScrollMode == OVER_SCROLL_ALWAYS ||
+                (overScrollMode == OVER_SCROLL_IF_CONTENT_SCROLLS && canScrollVertical);
+
+        int newScrollX = scrollX + deltaX;
+        if (!overScrollHorizontal) {
+            maxOverScrollX = 0;
+        }
+
+        int newScrollY = scrollY + deltaY;
+        if (!overScrollVertical) {
+            maxOverScrollY = 0;
+        }
+
+        // Clamp values if at the limits and record
+        final int left = -maxOverScrollX;
+        final int right = maxOverScrollX + scrollRangeX;
+        final int top = -maxOverScrollY;
+        final int bottom = maxOverScrollY + scrollRangeY;
+
+        boolean clampedX = false;
+        if (newScrollX > right) {
+            newScrollX = right;
+            clampedX = true;
+        } else if (newScrollX < left) {
+            newScrollX = left;
+            clampedX = true;
+        }
+
+        boolean clampedY = false;
+        if (newScrollY > bottom) {
+            newScrollY = bottom;
+            clampedY = true;
+        } else if (newScrollY < top) {
+            newScrollY = top;
+            clampedY = true;
+        }
+
+        scrollTo(newScrollX, newScrollY);
+
+        return clampedX || clampedY;
+    }
+
+    /**
+     * Compute the horizontal range that the horizontal scrollbar represents.
+     * @return the range of horizontal scrollbar.
+     * @since 6.0
+     */
+    @XWalkAPI
+    public int computeHorizontalScrollRange() {
+        return mContent.computeHorizontalScrollRange();
+    }
+
+    /**
+     * Compute the horizontal offset of the horizontal scrollbar's
+     * thumb within the horizontal range.
+     * @return the horizontal offset of the horizontal scrollbar's thumb.
+     * @since 6.0
+     */
+    @XWalkAPI
+    public int computeHorizontalScrollOffset() {
+        return mContent.computeHorizontalScrollOffset();
+    }
+
+    /**
+     * Compute the vertical range that the vertical scrollbar represents.
+     * @return the range of the vertical scrollbar.
+     * @since 6.0
+     */
+    @XWalkAPI
+    public int computeVerticalScrollRange() {
+        return mContent.computeVerticalScrollRange();
+    }
+
+    /**
+     * Compute the vertical offset the vertical scrollbar's thumb
+     * within the horizontal range.
+     * @return the vertical offset of the vertical scrollbar's thumb.
+     * @since 6.0
+     */
+    @XWalkAPI
+    public int computeVerticalScrollOffset() {
+        return mContent.computeVerticalScrollOffset();
+    }
+
+    /**
+     * Compute the vertical extent of the vertical scrollbar's thumb
+     * within the vertical range.
+     * @return vertical offset of the vertical scrollbar's thumb.
+     * @since 6.0
+     */
+    @XWalkAPI
+    public int computeVerticalScrollExtent() {
+        return mContent.computeVerticalScrollExtent();
+    }
+
+    /**
+     * Get the external extension manager for current XWalkView.
+     * Embedders could employ this manager to load their own external extensions.
+     * @return the external extension manager.
+     */
+    @XWalkAPI
+    public XWalkExternalExtensionManagerInternal getExtensionManager() {
+        if (mContent == null) return null;
+        checkThreadSafety();
+        return mExternalExtensionManager;
+    }
+
+    /**
+     * XWalkExternalExtensionManagerInternal will call this function after its construction.
+     * @hide
+     */
+    public void setExternalExtensionManager(XWalkExternalExtensionManagerInternal manager) {
+        if (mContent == null) return;
+        checkThreadSafety();
+        mExternalExtensionManager = manager;
+    }
+
+    /**
+     * Clears the SSL preferences table stored in response to proceeding with
+     * SSL certificate errors.
+     * @since 6.0
+     */
+    @XWalkAPI
+    public void clearSslPreferences() {
+        if (mContent == null) return;
+        checkThreadSafety();
+        mContent.clearSslPreferences();
+    }
+
+    /**
+     * Clears the client certificate preferences stored in response to
+     * proceeding/cancelling client cert requests.
+     *
+     * @param callback a runnable to be invoked when client certs are cleared
+     * @since 6.0
+     */
+    @XWalkAPI
+    public void clearClientCertPreferences(Runnable callback) {
+        if (mContent == null) return;
+        checkThreadSafety();
+        mContent.clearClientCertPreferences(callback);
+    }
+
+    /**
+     * Gets the SSL certificate for the main top-level page or null
+     * if there is no certificate (the site is not secure).
+     * @return the SSL certificate for the main top-level page.
+     * @since 6.0
+     */
+    @XWalkAPI
+    public SslCertificate getCertificate() {
+        if (mContent == null) return null;
+        checkThreadSafety();
+        return mContent.getCertificate();
+    }
+
+    /**
+     * Registers the listener to be notified as find-on-page operations progress.
+     *
+     * @param listener an implementation of {@link XWalkFindListener}
+     * @since 7.0
+     */
+    @XWalkAPI(reservable = true)
+    public void setFindListener(XWalkFindListenerInternal listener) {
+        if (mContent == null) return;
+        checkThreadSafety();
+        mContent.setFindListener(listener);
+    }
+
+    /**
+     * Finds all instances of find on the page and highlights them asynchronously.
+     * Notifies any registered {@link XWalkFindListener}.
+     * Successive calls to this will cancel any pending searches.
+     *
+     * @param searchString the string to find.
+     * @since 7.0
+     */
+    @XWalkAPI
+    public void findAllAsync(String searchString) {
+        if (mContent == null) return;
+        checkThreadSafety();
+        mContent.findAllAsync(searchString);
+    }
+
+    /**
+     * Highlights and scrolls to the next match found by {@link #findAllAsync},
+     * wrapping around page boundaries as necessary.
+     * Notifies any registered {@link XWalkFindListener}.
+     * If {@link #findAllAsync} has not been called yet, or if {@link #clearMatches} has been
+     * called since the last find operation, this function does nothing.
+     *
+     * @param forward the direction to search
+     * @since 7.0
+     */
+    @XWalkAPI
+    public void findNext(boolean forward) {
+        if (mContent == null) return;
+        checkThreadSafety();
+        mContent.findNext(forward);
+    }
+
+    /**
+     * Clears the highlighting surrounding text matches created by {@link #findAllAsync}.
+     *
+     * @since 7.0
+     */
+    @XWalkAPI
+    public void clearMatches() {
+        if (mContent == null) return;
+        checkThreadSafety();
+        mContent.clearMatches();
+    }
+
+    /**
+     * Gets the compositing surface type of this XWalkView.
+     * @return SurfaceView or TextureView
+     * @since 7.0
+     */
+    @XWalkAPI
+    public String getCompositingSurfaceType() {
+        checkThreadSafety();
+        if (mContent == null) return null;
+        return mContent.getCompositingSurfaceType();
     }
 }

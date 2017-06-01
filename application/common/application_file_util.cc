@@ -15,6 +15,7 @@
 #include "base/i18n/rtl.h"
 #include "base/json/json_file_value_serializer.h"
 #include "base/logging.h"
+#include "base/memory/ptr_util.h"
 #include "base/metrics/histogram.h"
 #include "base/path_service.h"
 #include "base/strings/string16.h"
@@ -32,10 +33,6 @@
 #include "xwalk/application/common/manifest.h"
 #include "xwalk/application/common/manifest_handler.h"
 
-#if defined(OS_TIZEN)
-#include "xwalk/application/common/id_util.h"
-#endif
-
 namespace errors = xwalk::application_manifest_errors;
 namespace keys = xwalk::application_manifest_keys;
 namespace widget_keys = xwalk::application_widget_keys;
@@ -44,8 +41,6 @@ namespace {
 const char kAttributePrefix[] = "@";
 const char kNamespaceKey[] = "@namespace";
 const char kTextKey[] = "#text";
-
-const char kContentKey[] = "content";
 
 const xmlChar kWidgetNodeKey[] = "widget";
 const xmlChar kNameNodeKey[] = "name";
@@ -173,16 +168,9 @@ inline bool IsElementSupportSpanAndDir(xmlNode* root) {
 }
 
 bool IsSingletonElement(const std::string& name) {
-  for (int i = 0; i < arraysize(kSingletonElements); ++i)
+  for (size_t i = 0; i < arraysize(kSingletonElements); ++i)
     if (kSingletonElements[i] == name)
-#if defined(OS_TIZEN)
-      // On Tizen platform, need to check namespace of 'content'
-      // element further, a content element with tizen namespace
-      // will replace the one with widget namespace.
-      return name != kContentKey;
-#else
       return true;
-#endif
   return false;
 }
 
@@ -282,7 +270,7 @@ namespace {
 // }
 base::DictionaryValue* LoadXMLNode(
     xmlNode* root, const std::string& inherit_dir = "") {
-  scoped_ptr<base::DictionaryValue> value(new base::DictionaryValue);
+  std::unique_ptr<base::DictionaryValue> value(new base::DictionaryValue);
   if (root->type != XML_ELEMENT_NODE)
     return NULL;
 
@@ -319,19 +307,6 @@ base::DictionaryValue* LoadXMLNode(
       continue;
     } else if (IsSingletonElement(sub_node_name)) {
       continue;
-#if defined(OS_TIZEN)
-    } else if (sub_node_name == kContentKey) {
-      std::string current_namespace, new_namespace;
-      base::DictionaryValue* current_value;
-      value->GetDictionary(sub_node_name, &current_value);
-
-      current_value->GetString(kNamespaceKey, &current_namespace);
-      sub_value->GetString(kNamespaceKey, &new_namespace);
-      if (current_namespace != new_namespace &&
-          new_namespace == widget_keys::kTizenNamespacePrefix)
-        value->Set(sub_node_name, sub_value);
-      continue;
-#endif
     }
 
     base::Value* temp;
@@ -378,14 +353,14 @@ base::DictionaryValue* LoadXMLNode(
 }  // namespace
 
 template <Manifest::Type>
-scoped_ptr<Manifest> LoadManifest(
+std::unique_ptr<Manifest> LoadManifest(
     const base::FilePath& manifest_path, std::string* error);
 
 template <>
-scoped_ptr<Manifest> LoadManifest<Manifest::TYPE_MANIFEST>(
+std::unique_ptr<Manifest> LoadManifest<Manifest::TYPE_MANIFEST>(
     const base::FilePath& manifest_path, std::string* error) {
   JSONFileValueDeserializer deserializer(manifest_path);
-  scoped_ptr<base::Value> root(deserializer.Deserialize(NULL, error));
+  std::unique_ptr<base::Value> root(deserializer.Deserialize(NULL, error));
   if (!root) {
     if (error->empty()) {
       // If |error| is empty, than the file could not be read.
@@ -397,26 +372,21 @@ scoped_ptr<Manifest> LoadManifest<Manifest::TYPE_MANIFEST>(
       *error = base::StringPrintf("%s  %s",
           errors::kManifestParseError, error->c_str());
     }
-    return scoped_ptr<Manifest>();
+    return std::unique_ptr<Manifest>();
   }
 
   if (!root->IsType(base::Value::TYPE_DICTIONARY)) {
     *error = base::StringPrintf("%s", errors::kManifestUnreadable);
-    return scoped_ptr<Manifest>();
+    return std::unique_ptr<Manifest>();
   }
 
-  scoped_ptr<base::DictionaryValue> dv = make_scoped_ptr(
+  std::unique_ptr<base::DictionaryValue> dv = base::WrapUnique(
       static_cast<base::DictionaryValue*>(root.release()));
-#if defined(OS_TIZEN)
-  // Ignore any Tizen application ID, as this is automatically generated.
-  dv->Remove(keys::kTizenAppIdKey, NULL);
-#endif
-
-  return make_scoped_ptr(new Manifest(dv.Pass(), Manifest::TYPE_MANIFEST));
+  return base::WrapUnique(new Manifest(std::move(dv), Manifest::TYPE_MANIFEST));
 }
 
 template <>
-scoped_ptr<Manifest> LoadManifest<Manifest::TYPE_WIDGET>(
+std::unique_ptr<Manifest> LoadManifest<Manifest::TYPE_WIDGET>(
     const base::FilePath& manifest_path,
     std::string* error) {
   xmlDoc * doc = NULL;
@@ -424,18 +394,19 @@ scoped_ptr<Manifest> LoadManifest<Manifest::TYPE_WIDGET>(
   doc = xmlReadFile(manifest_path.MaybeAsASCII().c_str(), NULL, 0);
   if (doc == NULL) {
     *error = base::StringPrintf("%s", errors::kManifestUnreadable);
-    return scoped_ptr<Manifest>();
+    return std::unique_ptr<Manifest>();
   }
   root_node = xmlDocGetRootElement(doc);
   base::DictionaryValue* dv = LoadXMLNode(root_node);
-  scoped_ptr<base::DictionaryValue> result(new base::DictionaryValue);
+  std::unique_ptr<base::DictionaryValue> result(new base::DictionaryValue);
   if (dv)
     result->Set(ToConstCharPointer(root_node->name), dv);
 
-  return make_scoped_ptr(new Manifest(result.Pass(), Manifest::TYPE_WIDGET));
+  return base::WrapUnique(new Manifest(std::move(result),
+                                      Manifest::TYPE_WIDGET));
 }
 
-scoped_ptr<Manifest> LoadManifest(const base::FilePath& manifest_path,
+std::unique_ptr<Manifest> LoadManifest(const base::FilePath& manifest_path,
     Manifest::Type type, std::string* error) {
   if (type == Manifest::TYPE_MANIFEST)
     return LoadManifest<Manifest::TYPE_MANIFEST>(manifest_path, error);
@@ -444,7 +415,7 @@ scoped_ptr<Manifest> LoadManifest(const base::FilePath& manifest_path,
     return LoadManifest<Manifest::TYPE_WIDGET>(manifest_path, error);
 
   *error = base::StringPrintf("%s", errors::kManifestUnreadable);
-  return scoped_ptr<Manifest>();
+  return std::unique_ptr<Manifest>();
 }
 
 base::FilePath GetManifestPath(
@@ -470,13 +441,13 @@ scoped_refptr<ApplicationData> LoadApplication(
     std::string* error) {
   base::FilePath manifest_path = GetManifestPath(app_root, manifest_type);
 
-  scoped_ptr<Manifest> manifest = LoadManifest(
+  std::unique_ptr<Manifest> manifest = LoadManifest(
       manifest_path, manifest_type, error);
   if (!manifest)
     return NULL;
 
   return ApplicationData::Create(
-      app_root, app_id, source_type, manifest.Pass(), error);
+      app_root, app_id, source_type, std::move(manifest), error);
 }
 
 base::FilePath ApplicationURLToRelativeFilePath(const GURL& url) {
@@ -486,7 +457,8 @@ base::FilePath ApplicationURLToRelativeFilePath(const GURL& url) {
 
   // Drop the leading slashes and convert %-encoded UTF8 to regular UTF8.
   std::string file_path = net::UnescapeURLComponent(url_path,
-      net::UnescapeRule::SPACES | net::UnescapeRule::URL_SPECIAL_CHARS);
+      net::UnescapeRule::SPACES | net::UnescapeRule::PATH_SEPARATORS |
+      net::UnescapeRule::URL_SPECIAL_CHARS_EXCEPT_PATH_SEPARATORS);
   size_t skip = file_path.find_first_not_of("/\\");
   if (skip != file_path.npos)
     file_path = file_path.substr(skip);

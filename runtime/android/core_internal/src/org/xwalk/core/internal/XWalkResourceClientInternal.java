@@ -8,9 +8,22 @@ import android.app.AlertDialog;
 import android.content.Context;
 import android.content.DialogInterface;
 import android.net.http.SslError;
+import android.os.Build;
+import android.text.InputType;
+import android.util.Log;
 import android.view.View;
 import android.webkit.ValueCallback;
 import android.webkit.WebResourceResponse;
+import android.widget.EditText;
+import android.widget.LinearLayout;
+import android.widget.Toast;
+
+import java.io.InputStream;
+import java.security.KeyStore.PrivateKeyEntry;
+import java.security.Principal;
+import java.util.ArrayList;
+import java.util.Map;
+
 
 /**
  * This class notifies the embedder resource events/callbacks.
@@ -130,7 +143,7 @@ public class XWalkResourceClientInternal {
      * This is similar to JavaScript DOMContentLoaded.
      * @param view the owner XWalkViewInternal instance.
      * @param frameId the loaded and parsed frame.
-     * @since 6.0
+     * @since 5.0
      */
     @XWalkAPI
     public void onDocumentLoadedInFrame(XWalkViewInternal view, long frameId) {
@@ -181,10 +194,34 @@ public class XWalkResourceClientInternal {
      * @return A {@link android.webkit.WebResourceResponse} containing the
      *         response information or null if the XWalkViewInternal should load the
      *         resource itself.
+     * @deprecated Use
+     *        {@link #shouldInterceptLoadRequest(XWalkViewInternal, XWalkWebResourceRequestInternal)}
+     *        instead.
      * @since 1.0
      */
     @XWalkAPI
     public WebResourceResponse shouldInterceptLoadRequest(XWalkViewInternal view, String url) {
+        return null;
+    }
+
+    /**
+     * Notify the client of a resource request and allow the client to return
+     * the data.  If the return value is null, the XWalkViewInternal
+     * will continue to load the resource as usual.  Otherwise, the return
+     * response and data will be used.  NOTE: This method is called by the
+     * network thread so clients should exercise caution when accessing private
+     * data.
+     * @param view The owner XWalkViewInternal instance that is requesting the
+     *             resource.
+     * @param request Object containing the details of the request..
+     * @return A {@link org.xwalk.core.XWalkWebResourceResponse} containing the
+     *         response information or null if the XWalkViewInternal should load the
+     *         resource itself.
+     * @since 6.0
+     */
+    @XWalkAPI
+    public XWalkWebResourceResponseInternal shouldInterceptLoadRequest(XWalkViewInternal view,
+            XWalkWebResourceRequestInternal request) {
         return null;
     }
 
@@ -199,18 +236,7 @@ public class XWalkResourceClientInternal {
     @XWalkAPI
     public void onReceivedLoadError(XWalkViewInternal view, int errorCode, String description,
             String failingUrl) {
-        AlertDialog.Builder dialogBuilder = new AlertDialog.Builder(view.getContext());
-        dialogBuilder.setTitle(android.R.string.dialog_alert_title)
-                .setMessage(description)
-                .setCancelable(false)
-                .setPositiveButton(android.R.string.ok, new DialogInterface.OnClickListener() {
-                    @Override
-                    public void onClick(DialogInterface dialog, int which) {
-                        dialog.dismiss();
-                    }
-                });
-        AlertDialog dialog = dialogBuilder.create();
-        dialog.show();
+        Toast.makeText(view.getContext(), description, Toast.LENGTH_SHORT).show();
     }
 
     /**
@@ -256,7 +282,8 @@ public class XWalkResourceClientInternal {
                         valueCallback.onReceiveValue(true);
                         dialog.dismiss();
                     }
-                }).setNegativeButton(android.R.string.cancel, new DialogInterface.OnClickListener() {
+                })
+                .setNegativeButton(android.R.string.cancel, new DialogInterface.OnClickListener() {
                     @Override
                     public void onClick(DialogInterface dialog, int which) {
                         valueCallback.onReceiveValue(false);
@@ -269,5 +296,151 @@ public class XWalkResourceClientInternal {
                     }
                 });
         dialogBuilder.create().show();
+    }
+
+    /**
+     * Notify the host application to handle a SSL client certificate request. The host application
+     * is responsible for showing the UI if desired and providing the keys. There are three ways to
+     * respond: proceed(), cancel() or ignore(). XWalkView remembers the response if proceed() or cancel()
+     * is called and does not call onReceivedClientCertRequest() again for the same host and port pair.
+     * XWalkView does not remember the response if ignore() is called.
+     *
+     * This method is called on the UI thread. During the callback, the connection is suspended.
+     *
+     * The default behavior is to cancel, returning no client certificate.
+     *
+     * @param view The XWalkView that is initiating the callback
+     * @param handler An instance of a ClientCertRequestHandlerInternal
+     *
+     * @since 6.0
+     */
+    @XWalkAPI
+    public void onReceivedClientCertRequest(XWalkViewInternal view,
+            ClientCertRequestInternal handler) {
+        handler.cancel();
+    }
+
+    /**
+     * Notify the host application that an HTTP response has been received from the server while loading a resource.
+     * This callback will be called for any resource (iframe, image, etc), not just for the main page.
+     * Thus, it is recommended to perform minimum required work in this callback.
+     * This method behaves similarly to the Android WebView's onReceivedHttpError if the HTTP response has a status code &gt;= 400.
+     * If there are no errors, {@code response} contains the cookies set by the HTTP response.
+     *
+     * @param view The XWalkView that is initiating the callback
+     * @param request The originating request
+     * @param response The response information
+     *
+     * @since 6.0
+     */
+    @XWalkAPI
+    public void onReceivedResponseHeaders(XWalkViewInternal view,
+            XWalkWebResourceRequestInternal request,
+            XWalkWebResourceResponseInternal response) {
+    }
+
+    /**
+     * Notify the host application to update its visited links database.
+     *
+     * @param view The XWalkView that is initiating the callback.
+     * @param url The url being visited.
+     * @param isReload True if this url is being reloaded.
+     *
+     * @since 6.0
+     */
+    @XWalkAPI
+    public void doUpdateVisitedHistory(XWalkViewInternal view, String url,
+            boolean isReload) {
+    }
+
+    /**
+     * Notify the host application to handle an authentication request. The
+     * default behavior is to cancel the request.
+     *
+     * @param view The XWalkViewInternal that is initiating the callback.
+     * @param handler The XWalkHttpAuthHandler that will handle the user's response.
+     * @param host The host requiring authentication.
+     * @param realm A description to help store user credentials for future
+     *              visits.
+     */
+    @XWalkAPI
+    public void onReceivedHttpAuthRequest(XWalkViewInternal view,
+            XWalkHttpAuthHandlerInternal handler, String host, String realm) {
+        if (view == null) return;
+
+        final XWalkHttpAuthHandlerInternal haHandler = handler;
+        Context context = view.getContext();
+        LinearLayout layout = new LinearLayout(context);
+        final EditText userNameEditText = new EditText(context);
+        final EditText passwordEditText = new EditText(context);
+        layout.setOrientation(LinearLayout.VERTICAL);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR1) {
+            layout.setPaddingRelative(10, 0, 10, 20);
+        } else {
+            layout.setPadding(10, 0, 10, 20);
+        }
+        userNameEditText.setHint(R.string.http_auth_user_name);
+        passwordEditText.setHint(R.string.http_auth_password);
+        passwordEditText.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
+        layout.addView(userNameEditText);
+        layout.addView(passwordEditText);
+
+        AlertDialog.Builder httpAuthDialog = new AlertDialog.Builder(view.getContext());
+        httpAuthDialog.setTitle(R.string.http_auth_title)
+                .setView(layout)
+                .setCancelable(false)
+                .setPositiveButton(R.string.http_auth_log_in,
+                        new DialogInterface.OnClickListener() {
+                            @Override
+                            public void onClick(DialogInterface dialog, int whichButton) {
+                                String userName = userNameEditText.getText().toString();
+                                String password = passwordEditText.getText().toString();
+                                haHandler.proceed(userName, password);
+                                dialog.dismiss();
+                            }
+                }).setNegativeButton(android.R.string.cancel, null)
+                .setOnCancelListener(new DialogInterface.OnCancelListener() {
+                    @Override
+                    public void onCancel(DialogInterface dialog) {
+                        haHandler.cancel();
+                    }
+                }).create().show();
+    }
+
+    /**
+     * Construct an instance of XWalkWebResourceResponseInternal
+     * for application usage.
+     *
+     * @param mimeType the resource response's MIME type, for example text/html
+     * @param encoding the resource response's encoding
+     * @param data the input stream that provides the resource response's data
+     * @return XWalkWebResourceResponseInternal.
+     * @since 6.0
+     */
+    @XWalkAPI
+    public XWalkWebResourceResponseInternal createXWalkWebResourceResponse(
+            String mimeType, String encoding, InputStream data) {
+        return new XWalkWebResourceResponseInternal(mimeType, encoding, data);
+    }
+
+    /**
+     * Construct an instance of XWalkWebResourceResponseInternal
+     * for application usage.
+     *
+     * @param mimeType the resource response's MIME type, for example text/html
+     * @param encoding the resource response's encoding
+     * @param data the input stream that provides the resource response's data
+     * @param statusCode the status code needs to be in the ranges [100, 299], [400, 599]
+     * @param reasonPhrase the phrase describing the status code, for example "OK"
+     * @param responseHeaders the resource response's headers represented as a mapping of header
+     * @return XWalkWebResourceResponseInternal.
+     * @since 6.0
+     */
+    @XWalkAPI
+    public XWalkWebResourceResponseInternal createXWalkWebResourceResponse(
+            String mimeType, String encoding, InputStream data, int statusCode,
+            String reasonPhrase, Map<String, String> responseHeaders) {
+        return new XWalkWebResourceResponseInternal(
+            mimeType, encoding, data, statusCode, reasonPhrase, responseHeaders);
     }
 }

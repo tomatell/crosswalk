@@ -7,7 +7,6 @@
 #include <string>
 #include <vector>
 
-#include "base/memory/scoped_vector.h"
 #include "base/pickle.h"
 #include "base/time/time.h"
 #include "content/public/browser/child_process_security_policy.h"
@@ -36,12 +35,12 @@ namespace {
 // Sanity check value that we are restoring from a valid pickle.
 // This can potentially used as an actual serialization version number in the
 // future if we ever decide to support restoring from older versions.
-const uint32 AW_STATE_VERSION = 20130814;
+const uint32_t AW_STATE_VERSION = 20130814;
 
 }  // namespace
 
 bool WriteToPickle(const content::WebContents& web_contents,
-                   Pickle* pickle) {
+                   base::Pickle* pickle) {
   DCHECK(pickle);
 
   if (!internal::WriteHeaderToPickle(pickle))
@@ -72,7 +71,7 @@ bool WriteToPickle(const content::WebContents& web_contents,
   return true;
 }
 
-bool RestoreFromPickle(PickleIterator* iterator,
+bool RestoreFromPickle(base::PickleIterator* iterator,
                        content::WebContents* web_contents) {
   DCHECK(iterator);
   DCHECK(web_contents);
@@ -96,14 +95,14 @@ bool RestoreFromPickle(PickleIterator* iterator,
   if (selected_entry >= entry_count)
     return false;
 
-  ScopedVector<content::NavigationEntry> restored_entries;
+  std::vector<std::unique_ptr<content::NavigationEntry>> entries;
+  entries.reserve(entry_count);
   for (int i = 0; i < entry_count; ++i) {
-    restored_entries.push_back(content::NavigationEntry::Create());
-    if (!internal::RestoreNavigationEntryFromPickle(iterator,
-                                                    restored_entries[i]))
+    entries.push_back(content::NavigationEntry::Create());
+    if (!internal::RestoreNavigationEntryFromPickle(iterator, entries[i].get()))
       return false;
 
-    restored_entries[i]->SetPageID(i);
+    entries[i]->SetPageID(i);
   }
 
   // |web_contents| takes ownership of these entries after this call.
@@ -111,8 +110,8 @@ bool RestoreFromPickle(PickleIterator* iterator,
   controller.Restore(
       selected_entry,
       content::NavigationController::RESTORE_LAST_SESSION_EXITED_CLEANLY,
-      &restored_entries.get());
-  DCHECK_EQ(0u, restored_entries.size());
+      &entries);
+  DCHECK_EQ(0u, entries.size());
 
   if (controller.GetActiveEntry()) {
     // Set up the file access rights for the selected navigation entry.
@@ -137,12 +136,12 @@ bool RestoreFromPickle(PickleIterator* iterator,
 
 namespace internal {
 
-bool WriteHeaderToPickle(Pickle* pickle) {
+bool WriteHeaderToPickle(base::Pickle* pickle) {
   return pickle->WriteUInt32(AW_STATE_VERSION);
 }
 
-bool RestoreHeaderFromPickle(PickleIterator* iterator) {
-  uint32 state_version = -1;
+bool RestoreHeaderFromPickle(base::PickleIterator* iterator) {
+  uint32_t state_version = -1;
   if (!iterator->ReadUInt32(&state_version))
     return false;
 
@@ -153,7 +152,7 @@ bool RestoreHeaderFromPickle(PickleIterator* iterator) {
 }
 
 bool WriteNavigationEntryToPickle(const content::NavigationEntry& entry,
-                                  Pickle* pickle) {
+                                  base::Pickle* pickle) {
   if (!pickle->WriteString(entry.GetURL().spec()))
     return false;
 
@@ -195,7 +194,7 @@ bool WriteNavigationEntryToPickle(const content::NavigationEntry& entry,
   return true;
 }
 
-bool RestoreNavigationEntryFromPickle(PickleIterator* iterator,
+bool RestoreNavigationEntryFromPickle(base::PickleIterator* iterator,
                                       content::NavigationEntry* entry) {
   {
     string url;
@@ -270,7 +269,7 @@ bool RestoreNavigationEntryFromPickle(PickleIterator* iterator,
   }
 
   {
-    int64 timestamp;
+    int64_t timestamp;
     if (!iterator->ReadInt64(&timestamp))
       return false;
     entry->SetTimestamp(base::Time::FromInternalValue(timestamp));

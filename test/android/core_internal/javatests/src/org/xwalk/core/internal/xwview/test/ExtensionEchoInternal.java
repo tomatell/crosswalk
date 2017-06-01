@@ -9,7 +9,7 @@ import org.xwalk.core.internal.extensions.XWalkExtensionAndroid;
 public class ExtensionEchoInternal extends XWalkExtensionAndroid {
 
     public ExtensionEchoInternal() {
-        super("echo",
+        super("echoJava",
               "var echoListener = null;"
               + "extension.setMessageListener(function(msg) {"
               + "  if (echoListener instanceof Function) {"
@@ -32,6 +32,10 @@ public class ExtensionEchoInternal extends XWalkExtensionAndroid {
 
     public String onSyncMessage(int instanceID, String message) {
         return "From java sync:" + message;
+    }
+
+    public void onBinaryMessage(int instanceId, byte[] message) {
+        postBinaryMessage(instanceId, message);
     }
 
     public void onDestroy() {

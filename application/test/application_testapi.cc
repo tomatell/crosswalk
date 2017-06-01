@@ -53,26 +53,26 @@ ApiTestExtensionInstance::ApiTestExtensionInstance(
                  base::Unretained(this)));
 }
 
-void ApiTestExtensionInstance::HandleMessage(scoped_ptr<base::Value> msg) {
-  handler_.HandleMessage(msg.Pass());
+void ApiTestExtensionInstance::HandleMessage(std::unique_ptr<base::Value> msg) {
+  handler_.HandleMessage(std::move(msg));
 }
 
 void ApiTestExtensionInstance::OnNotifyPass(
-    scoped_ptr<XWalkExtensionFunctionInfo> info) {
+    std::unique_ptr<XWalkExtensionFunctionInfo> info) {
   CHECK(observer_);
-  observer_->OnTestNotificationReceived(info.Pass(), kTestNotifyPass);
+  observer_->OnTestNotificationReceived(std::move(info), kTestNotifyPass);
 }
 
 void ApiTestExtensionInstance::OnNotifyFail(
-    scoped_ptr<XWalkExtensionFunctionInfo> info) {
+    std::unique_ptr<XWalkExtensionFunctionInfo> info) {
   CHECK(observer_);
-  observer_->OnTestNotificationReceived(info.Pass(), kTestNotifyFail);
+  observer_->OnTestNotificationReceived(std::move(info), kTestNotifyFail);
 }
 
 void ApiTestExtensionInstance::OnNotifyTimeout(
-    scoped_ptr<XWalkExtensionFunctionInfo> info) {
+    std::unique_ptr<XWalkExtensionFunctionInfo> info) {
   CHECK(observer_);
-  observer_->OnTestNotificationReceived(info.Pass(), kTestNotifyTimeout);
+  observer_->OnTestNotificationReceived(std::move(info), kTestNotifyTimeout);
 }
 
 ApiTestRunner::ApiTestRunner()
@@ -93,7 +93,7 @@ bool ApiTestRunner::WaitForTestNotification() {
 }
 
 void ApiTestRunner::OnTestNotificationReceived(
-    scoped_ptr<XWalkExtensionFunctionInfo> info,
+    std::unique_ptr<XWalkExtensionFunctionInfo> info,
     const std::string& result_str) {
   notify_func_info_.reset(info.release());
   Result result = NOT_SET;
@@ -118,7 +118,7 @@ void ApiTestRunner::OnTestNotificationReceived(
 void ApiTestRunner::PostResultToNotificationCallback() {
   ResetResult();
   notify_func_info_->PostResult(
-      scoped_ptr<base::ListValue>(new base::ListValue));
+      std::unique_ptr<base::ListValue>(new base::ListValue));
 }
 
 ApiTestRunner::Result ApiTestRunner::GetTestsResult() const {

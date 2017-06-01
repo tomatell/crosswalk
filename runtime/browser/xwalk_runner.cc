@@ -8,6 +8,7 @@
 #include <vector>
 #include "base/command_line.h"
 #include "base/logging.h"
+#include "base/memory/ptr_util.h"
 #include "content/public/browser/render_process_host.h"
 #include "xwalk/application/browser/application.h"
 #include "xwalk/application/browser/application_service.h"
@@ -26,8 +27,8 @@
 #include "xwalk/runtime/common/xwalk_runtime_features.h"
 #include "xwalk/runtime/common/xwalk_switches.h"
 
-#if defined(OS_TIZEN)
-#include "xwalk/runtime/browser/xwalk_runner_tizen.h"
+#if defined(OS_WIN)
+#include "xwalk/runtime/browser/xwalk_runner_win.h"
 #endif
 
 namespace xwalk {
@@ -78,6 +79,8 @@ void XWalkRunner::PreMainMessageLoopRun() {
 
   CreateComponents();
   app_extension_bridge_->SetApplicationSystem(app_component_->app_system());
+  browser_context_->set_application_service(
+      app_system()->application_service());
 }
 
 void XWalkRunner::PostMainMessageLoopRun() {
@@ -88,16 +91,16 @@ void XWalkRunner::PostMainMessageLoopRun() {
 }
 
 void XWalkRunner::CreateComponents() {
-  scoped_ptr<ApplicationComponent> app_component(CreateAppComponent());
+  std::unique_ptr<ApplicationComponent> app_component(CreateAppComponent());
   // Keep a reference as some code still needs to call
   // XWalkRunner::app_system().
   app_component_ = app_component.get();
-  AddComponent(app_component.Pass());
+  AddComponent(std::move(app_component));
 
   if (XWalkRuntimeFeatures::isSysAppsEnabled())
-    AddComponent(CreateSysAppsComponent().Pass());
+    AddComponent(CreateSysAppsComponent());
   if (XWalkRuntimeFeatures::isStorageAPIEnabled())
-    AddComponent(CreateStorageComponent().Pass());
+    AddComponent(CreateStorageComponent());
 }
 
 void XWalkRunner::DestroyComponents() {
@@ -109,30 +112,31 @@ void XWalkRunner::DestroyComponents() {
   app_component_ = NULL;
 }
 
-void XWalkRunner::AddComponent(scoped_ptr<XWalkComponent> component) {
+void XWalkRunner::AddComponent(std::unique_ptr<XWalkComponent> component) {
   components_.push_back(component.release());
 }
 
-scoped_ptr<ApplicationComponent> XWalkRunner::CreateAppComponent() {
-  return make_scoped_ptr(new ApplicationComponent(browser_context_.get()));
+std::unique_ptr<ApplicationComponent> XWalkRunner::CreateAppComponent() {
+  return base::WrapUnique(new ApplicationComponent(browser_context_.get()));
 }
 
-scoped_ptr<SysAppsComponent> XWalkRunner::CreateSysAppsComponent() {
-  return make_scoped_ptr(new SysAppsComponent());
+std::unique_ptr<SysAppsComponent> XWalkRunner::CreateSysAppsComponent() {
+  return base::WrapUnique(new SysAppsComponent());
 }
 
-scoped_ptr<StorageComponent> XWalkRunner::CreateStorageComponent() {
-  return make_scoped_ptr(new StorageComponent());
+std::unique_ptr<StorageComponent> XWalkRunner::CreateStorageComponent() {
+  return base::WrapUnique(new StorageComponent());
 }
 
 void XWalkRunner::InitializeRuntimeVariablesForExtensions(
     const content::RenderProcessHost* host,
-    base::ValueMap* variables) {
+    base::DictionaryValue::Storage* variables) {
   application::Application* app = app_system()->application_service()->
       GetApplicationByRenderHostID(host->GetID());
 
   if (app)
-    (*variables)["app_id"] = new base::StringValue(app->id());
+    (*variables)["app_id"] =
+        base::WrapUnique(new base::StringValue(app->id()));
 }
 
 void XWalkRunner::OnRenderProcessWillLaunch(content::RenderProcessHost* host) {
@@ -158,11 +162,18 @@ void XWalkRunner::OnRenderProcessWillLaunch(content::RenderProcessHost* host) {
   main_parts->CreateInternalExtensionsForExtensionThread(
       host, &extension_thread_extensions);
 
-  scoped_ptr<base::ValueMap> runtime_variables(new base::ValueMap);
+  InitializeEnvironmentVariablesForGoogleAPIs(host);
+
+  std::unique_ptr<base::DictionaryValue::Storage>
+      runtime_variables(new base::DictionaryValue::Storage);
   InitializeRuntimeVariablesForExtensions(host, runtime_variables.get());
   extension_service_->OnRenderProcessWillLaunch(
       host, &ui_thread_extensions, &extension_thread_extensions,
-      runtime_variables.Pass());
+      std::move(runtime_variables));
+}
+
+void XWalkRunner::InitializeEnvironmentVariablesForGoogleAPIs(
+    content::RenderProcessHost* host) {
 }
 
 void XWalkRunner::OnRenderProcessHostGone(content::RenderProcessHost* host) {
@@ -188,14 +199,12 @@ void XWalkRunner::DisableRemoteDebugging() {
 }
 
 // static
-scoped_ptr<XWalkRunner> XWalkRunner::Create() {
-  XWalkRunner* runner = NULL;
-#if defined(OS_TIZEN)
-  runner = new XWalkRunnerTizen;
+std::unique_ptr<XWalkRunner> XWalkRunner::Create() {
+#if defined (OS_WIN)
+  return std::unique_ptr<XWalkRunner>(new XWalkRunnerWin);
 #else
-  runner = new XWalkRunner;
+  return std::unique_ptr<XWalkRunner>(new XWalkRunner);
 #endif
-  return scoped_ptr<XWalkRunner>(runner);
 }
 
 content::ContentBrowserClient* XWalkRunner::GetContentBrowserClient() {

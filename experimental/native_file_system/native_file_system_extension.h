@@ -37,37 +37,14 @@ class NativeFileSystemInstance : public XWalkExtensionInstance {
   explicit NativeFileSystemInstance(content::RenderProcessHost* host);
 
   // XWalkExtensionInstance implementation.
-  void HandleMessage(scoped_ptr<base::Value> msg) override;
-  void HandleSyncMessage(scoped_ptr<base::Value> msg) override;
+  void HandleMessage(std::unique_ptr<base::Value> msg) override;
+  void HandleSyncMessage(std::unique_ptr<base::Value> msg) override;
 
  private:
+  void OnRequestNativeFileSystem(std::unique_ptr<XWalkExtensionFunctionInfo> info);
+
   XWalkExtensionFunctionHandler handler_;
   content::RenderProcessHost* host_;
-};
-
-class FileSystemChecker
-    : public base::RefCountedThreadSafe<FileSystemChecker> {
- public:
-  FileSystemChecker(
-      int process_id,
-      const std::string& path,
-      const std::string& root_name,
-      const std::string& promise_id,
-      XWalkExtensionInstance* instance);
-  void DoTask();
-
- private:
-  friend class base::RefCountedThreadSafe<FileSystemChecker>;
-  virtual ~FileSystemChecker() {}
-  void RegisterFileSystemsAndSendResponse();
-
-  int process_id_;
-  std::string path_;
-  std::string root_name_;
-  std::string promise_id_;
-  XWalkExtensionInstance* instance_;
-
-  DISALLOW_COPY_AND_ASSIGN(FileSystemChecker);
 };
 
 }  // namespace experimental

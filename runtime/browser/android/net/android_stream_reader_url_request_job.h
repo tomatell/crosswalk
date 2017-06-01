@@ -5,14 +5,15 @@
 #ifndef XWALK_RUNTIME_BROWSER_ANDROID_NET_ANDROID_STREAM_READER_URL_REQUEST_JOB_H_
 #define XWALK_RUNTIME_BROWSER_ANDROID_NET_ANDROID_STREAM_READER_URL_REQUEST_JOB_H_
 
+#include <memory>
 #include <string>
 
 #include "base/android/scoped_java_ref.h"
 #include "base/location.h"
 #include "base/memory/ref_counted.h"
-#include "base/memory/scoped_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/threading/thread_checker.h"
+#include "net/base/net_errors.h"
 #include "net/http/http_byte_range.h"
 #include "net/url_request/url_request_job.h"
 
@@ -26,6 +27,7 @@ class TaskRunner;
 }
 
 namespace net {
+class HttpResponseHeaders;
 class HttpResponseInfo;
 class URLRequest;
 }
@@ -42,7 +44,7 @@ class AndroidStreamReaderURLRequestJob : public net::URLRequestJob {
   class Delegate {
    public:
     // This method is called from a worker thread, not from the IO thread.
-    virtual scoped_ptr<xwalk::InputStream> OpenInputStream(
+    virtual std::unique_ptr<xwalk::InputStream> OpenInputStream(
         JNIEnv* env,
         const GURL& url) = 0;
 
@@ -70,21 +72,22 @@ class AndroidStreamReaderURLRequestJob : public net::URLRequestJob {
         JNIEnv* env,
         std::string* name) = 0;
 
+    virtual void AppendResponseHeaders(JNIEnv* env,
+                                       net::HttpResponseHeaders* headers) = 0;
+
     virtual ~Delegate() {}
   };
 
   AndroidStreamReaderURLRequestJob(
       net::URLRequest* request,
       net::NetworkDelegate* network_delegate,
-      scoped_ptr<Delegate> delegate,
+      std::unique_ptr<Delegate> delegate,
       const std::string& content_security_policy);
 
   // URLRequestJob:
   void Start() override;
   void Kill() override;
-  bool ReadRawData(net::IOBuffer* buf,
-                   int buf_size,
-                   int* bytes_read) override;
+  int ReadRawData(net::IOBuffer* buf, int buf_size) override;
   void SetExtraRequestHeaders(
       const net::HttpRequestHeaders& headers) override;
   bool GetMimeType(std::string* mime_type) const override;
@@ -101,21 +104,22 @@ class AndroidStreamReaderURLRequestJob : public net::URLRequestJob {
 
   // Creates an InputStreamReader instance.
   // Overridden in unittests to return a mock.
-  virtual scoped_ptr<xwalk::InputStreamReader>
+  virtual std::unique_ptr<xwalk::InputStreamReader>
       CreateStreamReader(xwalk::InputStream* stream);
 
  private:
   void HeadersComplete(int status_code, const std::string& status_text);
 
   void OnInputStreamOpened(
-      scoped_ptr<Delegate> delegate,
-      scoped_ptr<xwalk::InputStream> input_stream);
+      std::unique_ptr<Delegate> delegate,
+      std::unique_ptr<xwalk::InputStream> input_stream);
   void OnReaderSeekCompleted(int content_size);
   void OnReaderReadCompleted(int bytes_read);
 
   net::HttpByteRange byte_range_;
-  scoped_ptr<net::HttpResponseInfo> response_info_;
-  scoped_ptr<Delegate> delegate_;
+  net::Error range_parse_result_;
+  std::unique_ptr<net::HttpResponseInfo> response_info_;
+  std::unique_ptr<Delegate> delegate_;
   std::string content_security_policy_;
   scoped_refptr<InputStreamReaderWrapper> input_stream_reader_wrapper_;
   base::WeakPtrFactory<AndroidStreamReaderURLRequestJob> weak_factory_;

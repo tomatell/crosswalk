@@ -65,13 +65,12 @@ class XWalkContentsClientBridge : public XWalkContentsClientBridgeBase ,
       override;
   void RunBeforeUnloadDialog(
       const GURL& origin_url,
-      const base::string16& message_text,
       const content::JavaScriptDialogManager::DialogClosedCallback& callback)
       override;
   void ShowNotification(
       const content::PlatformNotificationData& notification_data,
-      const SkBitmap& icon,
-      scoped_ptr<content::DesktopNotificationDelegate> delegate,
+      const content::NotificationResources& notification_resources,
+      std::unique_ptr<content::DesktopNotificationDelegate> delegate,
       base::Closure* cancel_callback)
       override;
   void OnWebLayoutPageScaleFactorChanged(
@@ -81,12 +80,15 @@ class XWalkContentsClientBridge : public XWalkContentsClientBridgeBase ,
   bool OnReceivedHttpAuthRequest(const base::android::JavaRef<jobject>& handler,
                                  const std::string& host,
                                  const std::string& realm);
+  bool ShouldOverrideUrlLoading(const base::string16& url,
+                                bool has_user_gesture,
+                                bool is_redirect,
+                                bool is_main_frame) override;
 
   // Methods called from Java.
   void ProceedSslError(JNIEnv* env, jobject obj, jboolean proceed, jint id);
   void ConfirmJsResult(JNIEnv*, jobject, int id, jstring prompt);
   void CancelJsResult(JNIEnv*, jobject, int id);
-  void ExitFullscreen(JNIEnv*, jobject, jlong web_contents);
   void NotificationDisplayed(JNIEnv*, jobject, jint id);
   void NotificationClicked(JNIEnv*, jobject, jint id);
   void NotificationClosed(JNIEnv*, jobject, jint id, bool by_user);
@@ -101,6 +103,23 @@ class XWalkContentsClientBridge : public XWalkContentsClientBridgeBase ,
   virtual void OnIconAvailable(const GURL& icon_url);
   virtual void OnReceivedIcon(const GURL& icon_url, const SkBitmap& bitmap);
 
+  void ProvideClientCertificateResponse(JNIEnv* env, jobject object,
+      jint request_id, jobjectArray encoded_chain_ref,
+      jobject private_key_ref);
+
+  virtual void SelectClientCertificate(
+      net::SSLCertRequestInfo* cert_request_info,
+      std::unique_ptr<content::ClientCertificateDelegate> delegate);
+
+  void HandleErrorInClientCertificateResponse(int id);
+
+  void ClearClientCertPreferences(
+      JNIEnv*, jobject,
+      const base::android::JavaParamRef<jobject>& callback);
+
+  void ClientCertificatesCleared(
+      base::android::ScopedJavaGlobalRef<jobject>* callback);
+
  private:
   JavaObjectWeakGlobalRef java_ref_;
 
@@ -108,11 +127,18 @@ class XWalkContentsClientBridge : public XWalkContentsClientBridgeBase ,
   IDMap<CertErrorCallback, IDMapOwnPointer> pending_cert_error_callbacks_;
   IDMap<content::JavaScriptDialogManager::DialogClosedCallback, IDMapOwnPointer>
       pending_js_dialog_callbacks_;
+  // |pending_client_cert_request_delegates_| owns its pointers, but IDMap
+  // doesn't provide Release, so ownership is managed manually.
+  IDMap<content::ClientCertificateDelegate>
+      pending_client_cert_request_delegates_;
 
   typedef std::pair<int, content::RenderFrameHost*>
     NotificationDownloadRequestInfos;
 
-  scoped_ptr<XWalkIconHelper> icon_helper_;
+  IDMap<SelectCertificateCallback, IDMapOwnPointer>
+      pending_client_cert_request_callbacks_;
+
+  std::unique_ptr<XWalkIconHelper> icon_helper_;
 };
 
 bool RegisterXWalkContentsClientBridge(JNIEnv* env);

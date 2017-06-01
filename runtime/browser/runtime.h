@@ -5,10 +5,10 @@
 #ifndef XWALK_RUNTIME_BROWSER_RUNTIME_H_
 #define XWALK_RUNTIME_BROWSER_RUNTIME_H_
 
+#include <memory>
+#include <string>
 #include <vector>
 
-#include "base/basictypes.h"
-#include "base/memory/scoped_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "xwalk/runtime/browser/runtime_ui_delegate.h"
 #include "content/public/browser/notification_observer.h"
@@ -29,6 +29,7 @@ class WebContents;
 
 namespace xwalk {
 
+class XWalkAutofillManager;
 class XWalkBrowserContext;
 class RuntimeUIDelegate;
 
@@ -48,6 +49,9 @@ class Runtime : public content::WebContentsDelegate,
 
       // Called when a Runtime instance is removed.
       virtual void OnRuntimeClosed(Runtime* runtime) = 0;
+
+      // Called when there is a request to exit the application.
+      virtual void OnApplicationExitRequested(Runtime* runtime) = 0;
 
    protected:
       virtual ~Observer() {}
@@ -70,7 +74,7 @@ class Runtime : public content::WebContentsDelegate,
 
   // Create a new Runtime instance with the given browsing context.
   static Runtime* Create(XWalkBrowserContext* context,
-                         content::SiteInstance* site = nullptr);
+                         scoped_refptr<content::SiteInstance> site = nullptr);
 
   void LoadURL(const GURL& url);
   void Show();
@@ -92,6 +96,10 @@ class Runtime : public content::WebContentsDelegate,
   }
 
   content::RenderProcessHost* GetRenderProcessHost();
+  bool AddDownloadItem(content::DownloadItem* download_item,
+      const content::DownloadTargetCallback& callback,
+      const base::FilePath& suggested_path);
+  void RequestApplicationExit();
 
  protected:
   explicit Runtime(content::WebContents* web_contents);
@@ -108,13 +116,15 @@ class Runtime : public content::WebContentsDelegate,
       content::WebContents* web_contents) override;
   bool IsFullscreenForTabOrPending(
       const content::WebContents* web_contents) const override;
+  blink::WebDisplayMode GetDisplayMode(
+      const content::WebContents* web_contents) const override;
   void RequestToLockMouse(content::WebContents* web_contents,
                           bool user_gesture,
                           bool last_unlocked_by_target) override;
   void CloseContents(content::WebContents* source) override;
   void WebContentsCreated(content::WebContents* source_contents,
                           int opener_render_frame_id,
-                          const base::string16& frame_name,
+                          const std::string& frame_name,
                           const GURL& target_url,
                           content::WebContents* new_contents) override;
   void DidNavigateMainFramePostCommit(
@@ -122,7 +132,6 @@ class Runtime : public content::WebContentsDelegate,
   content::JavaScriptDialogManager* GetJavaScriptDialogManager(
       content::WebContents* contents) override;
   void ActivateContents(content::WebContents* contents) override;
-  void DeactivateContents(content::WebContents* contents) override;
   bool CanOverscrollContent() const override;
   bool PreHandleKeyboardEvent(
       content::WebContents* source,
@@ -136,7 +145,7 @@ class Runtime : public content::WebContentsDelegate,
       SkColor initial_color,
       const std::vector<content::ColorSuggestion>& suggestions) override;
   void RunFileChooser(
-      content::WebContents* web_contents,
+      content::RenderFrameHost* render_frame_host,
       const content::FileChooserParams& params) override;
   void EnumerateDirectory(content::WebContents* web_contents,
                           int request_id,
@@ -154,6 +163,11 @@ class Runtime : public content::WebContentsDelegate,
   // Overridden from content::WebContentsObserver.
   void DidUpdateFaviconURL(
       const std::vector<content::FaviconURL>& candidates) override;
+  void TitleWasSet(content::NavigationEntry* entry, bool explicit_set) override;
+  void DidNavigateAnyFrame(
+      content::RenderFrameHost* render_frame_host,
+      const content::LoadCommittedDetails& details,
+      const content::FrameNavigateParams& params) override;
 
   // Callback method for WebContents::DownloadImage.
   void DidDownloadFavicon(int id,
@@ -161,6 +175,7 @@ class Runtime : public content::WebContentsDelegate,
                           const GURL& image_url,
                           const std::vector<SkBitmap>& bitmaps,
                           const std::vector<gfx::Size>& sizes);
+  bool HandleContextMenu(const content::ContextMenuParams& params) override;
 
   // NotificationObserver
   void Observe(int type,
@@ -169,9 +184,12 @@ class Runtime : public content::WebContentsDelegate,
 
   // Notification manager.
   content::NotificationRegistrar registrar_;
+  base::ThreadChecker thread_checker_;
 
-  // The WebContents owned by this runtime.
-  scoped_ptr<content::WebContents> web_contents_;
+  std::unique_ptr<content::WebContents> web_contents_;
+#if !defined(OS_ANDROID)
+  std::unique_ptr<XWalkAutofillManager> xwalk_autofill_manager_;
+#endif
 
   gfx::Image app_icon_;
 

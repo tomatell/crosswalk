@@ -6,6 +6,8 @@ package org.xwalk.core.internal.xwview.test;
 
 import android.test.suitebuilder.annotation.MediumTest;
 
+import java.lang.Thread;
+
 import junit.framework.Assert;
 
 import org.chromium.base.test.util.Feature;
@@ -15,18 +17,20 @@ import org.chromium.content.browser.test.util.TouchCommon;
 import org.xwalk.core.internal.xwview.test.util.VideoTestWebServer;
 
 /**
- * Tests XWalkWebChromeClient::onShow/onHideCustomView.
+ * Tests XWalkUIClient::onShow/onHideCustomView.
  */
 public class OnShowOnHideCustomViewTest extends XWalkViewInternalTestBase {
+    private static final int MAX_CLICKS = 5;
+
     private VideoTestWebServer mWebServer;
-    private TestXWalkWebChromeClientBase mWebChromeClient;
+    private TestXWalkUIClientInternal mUIClient;
     private ContentViewCore mContentViewCore;
 
     @Override
     protected void setUp() throws Exception {
         super.setUp();
-        mWebChromeClient = new TestXWalkWebChromeClientBase();
-        setXWalkWebChromeClient(mWebChromeClient);
+        mUIClient = new XWalkViewInternalTestBase.TestXWalkUIClientInternal();
+        setUIClient(mUIClient);
         mContentViewCore = getContentViewCore();
         mWebServer = new VideoTestWebServer(getInstrumentation().getContext());
     }
@@ -52,28 +56,31 @@ public class OnShowOnHideCustomViewTest extends XWalkViewInternalTestBase {
     @Feature({"onShow/onHideCustomView"})
     public void testOnShowCustomViewAndPlayWithHtmlControl() throws Throwable {
         doOnShowCustomViewTest();
-        Assert.assertTrue(DOMUtils.isVideoPaused(mContentViewCore.getWebContents(),
+        Assert.assertTrue(DOMUtils.isMediaPaused(mContentViewCore.getWebContents(),
                                                  VideoTestWebServer.VIDEO_ID));
 
         // Click the html play button that is rendered above the video right in the middle
         // of the custom view. Note that we're not able to get the precise location of the
         // control since it is a shadow element, so this test might break if the location
         // ever moves.
-        TouchCommon.singleClickView(mWebChromeClient.getCustomView());
+        for (int i = 0; i < MAX_CLICKS; ++i) {
+            Thread.sleep(1000);
+            TouchCommon.singleClickView(mUIClient.getCustomView());
+        }
 
-        Assert.assertTrue(DOMUtils.waitForVideoPlay(
-                mContentViewCore.getWebContents(), VideoTestWebServer.VIDEO_ID));
+        DOMUtils.waitForMediaPlay(
+                mContentViewCore.getWebContents(), VideoTestWebServer.VIDEO_ID);
     }
 
     private void doOnShowAndHideCustomViewTest(final Runnable existFullscreen) throws Throwable {
         doOnShowCustomViewTest();
         getInstrumentation().runOnMainSync(existFullscreen);
-        mWebChromeClient.waitForCustomViewHidden();
+        mUIClient.waitForCustomViewHidden();
     }
 
     private void doOnShowCustomViewTest() throws Exception {
         loadTestPageAndClickFullscreen();
-        mWebChromeClient.waitForCustomViewShown();
+        mUIClient.waitForCustomViewShown();
     }
 
     private void loadTestPageAndClickFullscreen() throws Exception {

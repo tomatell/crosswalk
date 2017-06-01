@@ -1,470 +1,221 @@
-// Copyright (c) 2014 Intel Corporation. All rights reserved.
+// Copyright (c) 2015 Intel Corporation. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 package org.xwalk.core;
 
 import android.app.Activity;
-import android.app.AlertDialog;
-import android.app.Dialog;
-import android.app.DownloadManager;
-import android.app.ProgressDialog;
-import android.content.ActivityNotFoundException;
-import android.content.Context;
-import android.content.DialogInterface;
-import android.content.DialogInterface.OnClickListener;
-import android.content.DialogInterface.OnDismissListener;
-import android.content.DialogInterface.OnShowListener;
-import android.content.Intent;
-import android.content.IntentFilter;
-import android.content.pm.ApplicationInfo;
-import android.content.pm.PackageManager;
-import android.content.pm.PackageManager.NameNotFoundException;
-import android.content.res.Resources;
-import android.net.Uri;
 import android.os.Bundle;
-import android.util.Log;
-
-import org.xwalk.core.XWalkLibraryInterface.DecompressionListener;
-import org.xwalk.core.XWalkLibraryInterface.DownloadListener;
-import org.xwalk.core.XWalkLibraryInterface.InitializationListener;
 
 /**
- * <p><code>XWalkActivity</code> helps to execute all procedures for makeing the Crosswalk Project
- * runtime workable and displays dialogs for interacting with the end-user if necessary. The
- * activities that hold the {@link XWalkView} object might want to extend <code>XWalkActivity</code>
- * to obtain this capability. For those activities, it's important to override the abstract method
- * {@link #onXWalkReady} that notifies the Crosswalk Project runtime is ready.<p>
+ * <p><code>XWalkActivity</code> helps to execute all procedures to make Crosswalk Project runtime
+ * workable and displays dialogs to interact with the user if needed. The activities that hold the
+ * {@link XWalkView} objects might want to extend <code>XWalkActivity</code> to obtain this
+ * capability. For those activities, there's no need to use {@link XWalkInitializer} and
+ * {@link XWalkUpdater}.</p>
  *
- * <p>In shared mode, the Crosswalk Project runtime is not loaded yet at the moment the activity is
- * created. So the developer can't use embedding API in <code>onCreate()</code> as usual. All
- * routines using the embedding API should be inside {@link #onXWalkReady} or after
- * {@link #onXWalkReady} is invoked.</p>
+ * <p><strong>By <code>XWalkActivity</code>, your application can support all running modes
+ * (embedded mode, shared mode, download mode) with same code. So this is the preferred interface.
+ * </strong></p>
  *
- * <p>For example:</p>
+ * <h3>Edit Activity</h3>
+ *
+ * <p>Here is the sample code for all running modes:</p>
  *
  * <pre>
- * public class MyXWalkActivity extends XWalkActivity {
- *     XWalkView mXWalkView;
+ * import android.os.Bundle;
+ *
+ * import org.xwalk.core.XWalkActivity;
+ * import org.xwalk.core.XWalkView;
+ *
+ * public class MainActivity extends XWalkActivity {
+ *     private XWalkView mXWalkView;
  *
  *     &#64;Override
  *     protected void onCreate(Bundle savedInstanceState) {
  *         super.onCreate(savedInstanceState);
  *
- *         // Before onXWalkReady() is invoked, you can do nothing with the embedding API
- *         // except the following:
- *         // 1. Create the instance of XWalkView
- *         // 2. Call setUIClient()
- *         // 3. Call setResourceClient()
+ *         // Until onXWalkReady() is invoked, you should do nothing with the
+ *         // embedding API except the following:
+ *         // 1. Instantiate the XWalkView object
+ *         // 2. Call XWalkPreferences.setValue()
+ *         // 3. Call mXWalkView.setXXClient(), e.g., setUIClient
+ *         // 4. Call mXWalkView.setXXListener(), e.g., setDownloadListener
+ *         // 5. Call mXWalkView.addJavascriptInterface()
  *
- *         setContentView(R.layout.activity_xwalkview);
+ *         setContentView(R.layout.activity_main);
  *         mXWalkView = (XWalkView) findViewById(R.id.xwalkview);
- *         mXWalkView.setUIClient(new MyXWalkUIClient(mXWalkView));
- *         mXWalkView.setResourceClient(new MyXWalkResourceClient(mXWalkView));
  *     }
  *
  *     &#64;Override
  *     public void onXWalkReady() {
  *         // Do anyting with the embedding API
  *
- *         XWalkPreferences.setValue(XWalkPreferences.SUPPORT_MULTIPLE_WINDOWS, true);
- *
- *         mXWalkView.load("http://crosswalk-project.org/", null);
+ *         mXWalkView.loadUrl("https://crosswalk-project.org/");
  *     }
  * }
  * </pre>
  *
- * <p>Besides, you must use {@link XWalkApplication} in the Android manifest if the application is
- * intended to run in shared mode.</p>
+ * <h3>Edit Layout</h3>
+ *
+ * <p>When the application was generated, some default layout resources were added to the project.
+ * Add a single XWalkView resource to a proper place in the main layout resource file,
+ * res/layout/activity_main.xml, like this:</p>
  *
  * <pre>
- * &lt;application android:name="org.xwalk.core.XWalkApplication"&gt;
+ *   &lt;org.xwalk.core.XWalkView
+ *       android:id="@+id/xwalkview"
+ *       android:layout_width="match_parent"
+ *       android:layout_height="match_parent" /&gt;
  * </pre>
  *
- * <p>And shared mode also needs following permissions:</p>
+ * <h3>Edit App Manifest</h3>
+ *
+ * <p>For shared mode and download mode, you might need to edit the Android manifest to set some
+ * properties.</p>
+ *
+ * <h4>Shared Mode</h4>
+ *
+ * <p>If you want the end-user to download Crosswalk Project runtime from specified URL instead of
+ * switching to the application store, add following &lt;meta-data&gt; element inside the
+ * &lt;application&gt; element:</p>
  *
  * <pre>
- * &lt;uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" /&gt;
- * &lt;uses-permission android:name="android.permission.ACCESS_WIFI_STATE" /&gt;
- * &lt;uses-permission android:name="android.permission.INTERNET" /&gt;
+ * &lt;application&gt;
+ *     &lt;meta-data android:name="xwalk_apk_url" android:value="http://host/XWalkRuntimeLib.apk" /&gt;
+ * </pre>
+ *
+ * <p>Please note that when the HTTP request is sent to server, the URL will be appended with
+ * "?arch=CPU_API" to indicate that on which CPU architecture it's currently running. The CPU_API
+ * is the same as the value returned from "adb shell getprop ro.product.cpu_abi", e.g. x86 for
+ * IA 32bit, x86_64 for IA 64bit, armeabi-v7a for ARM 32bit and arm64-v8a for ARM 64bit.
+ *
+ * <p>The specified APK will be downloaded to SD card, so you have to grant following permission: </p>
+ *
+ * <pre>
  * &lt;uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" /&gt;
  * </pre>
+ *
+ * <h4>Download Mode</h4>
+ *
+ * <p>Firstly, you need to add following &lt;meta-data&gt; element to enable download mode:</p>
+ *
+ * <pre>
+ * &lt;application&gt;
+ *     &lt;meta-data android:name="xwalk_download_mode" android:value="enable"/&gt;
+ * </pre>
+ *
+ * <p>In download mode, the value of <code>xwalk_apk_url</code> is mandatory. However, the
+ * downloaded Apk will be saved into application's private storage, so the permission of writing to
+ * SD card is not needed anymore.</p>
+ *
+ * <p>By default, the application will verify the signature of downloaded Crosswalk Project runtime,
+ * which is required to be the same as your application. But you can disable it by adding following
+ * &lt;meta-data&gt; element:
+ *
+ * <pre>
+ * &lt;application&gt;
+ *     &lt;meta-data android:name="xwalk_verify" android:value="disable"/&gt;
+ * </pre>
+ *
+ * <p> If your application has already downloaded Crosswalk Project runtime but the application got
+ * an update after that, the build version of shared library you used to bundle with your
+ * new application may be newer than the build version of downloaded Crosswalk Project runtime.
+ * In this case, it will download new version of Crosswalk Project runtime from the server again.
+ * If you want to continue using old version of Crosswalk Project runtime, you could add following
+ * &lt;meta-data&gt; element:
+ *
+ * <pre>
+ * &lt;application&gt;
+ *     &lt;meta-data android:name="xwalk_download_mode_update" android:value="disable"/&gt;
+ * </pre>
+ *
  */
 public abstract class XWalkActivity extends Activity {
-    private static final String XWALK_APK_MARKET_URL = "market://details?id=org.xwalk.core";
-    private static final String TAG = "XWalkActivity";
+    private XWalkActivityDelegate mActivityDelegate;
 
-    private XWalkLibraryListener mLibraryListener;
-    private Dialog mActiveDialog;
-    private boolean mIsXWalkReady;
-    private boolean mDecoratedBackground;
-    private String mXWalkApkDownloadUrl;
+    /**
+     * Run on the UI thread to notify Crosswalk Project runtime is ready.<br>
+     * You should load the web page in {@link XWalkView} within this method.
+     */
+    protected abstract void onXWalkReady();
 
-    private static class XWalkLibraryListener
-            implements DecompressionListener, DownloadListener, InitializationListener {
-        XWalkActivity mXWalkActivity;
+    /**
+     * Run on the UI thread to notify the initialization of Crosswalk Project runtime failed or is
+     * cancelled.<br>
+     * Then, your won't be able to use {@link XWalkView}. By default, it will call finish() to
+     * close your activity.
+     *
+     * @since 7.0
+     */
+    protected void onXWalkFailed() {
+        finish();
+    }
 
-        XWalkLibraryListener(XWalkActivity activity) {
-            mXWalkActivity = activity;
-        }
+    /**
+     * Get the dialog manager so that you can customize the dialog to be dislplayed when
+     * initializing Crosswalk Project runtime. Please note that you should modify the dialog within
+     * onCreate(). Once onResume() is invoked, some dialog maybe already displayed. The dialog
+     * manager is meaningless in download mode because there won't be any UI interaction.
+     *
+     * @return the dialog manager which this activity is using
+     * @since 7.0
+     */
+    protected XWalkDialogManager getDialogManager() {
+        return mActivityDelegate.getDialogManager();
+    }
 
-        @Override
-        public void onDecompressionStarted() {
-            mXWalkActivity.showDialog(mXWalkActivity.getDecompressionProgressDialog());
-        }
+    /**
+     * Return whether Crosswalk's APIs are ready to use.
+     *
+     * @return true when or after {@link #onXWalkReady} is invoked, false otherwise
+     */
+    public boolean isXWalkReady() {
+        return mActivityDelegate.isXWalkReady();
+    }
 
-        @Override
-        public void onDecompressionCancelled() {
-            mXWalkActivity.dismissDialog();
-            mXWalkActivity.finish();
-        }
+    /**
+     * Return whether running in shared mode. This method has meaning only when the return value
+     * of {@link #isXWalkReady} is true.
+     *
+     * @return true if running in shared mode, false otherwise
+     */
+    public boolean isSharedMode() {
+        return mActivityDelegate.isSharedMode();
+    }
 
-        @Override
-        public void onDecompressionCompleted() {
-            mXWalkActivity.dismissDialog();
-            mXWalkActivity.initXWalkLibrary();
-        }
-
-        @Override
-        public void onDownloadStarted() {
-            mXWalkActivity.showDialog(mXWalkActivity.getDownloadProgressDialog());
-        }
-
-        @Override
-        public void onDownloadUpdated(int percentage) {
-            ProgressDialog dialog = (ProgressDialog) mXWalkActivity.mActiveDialog;
-            dialog.setIndeterminate(false);
-            dialog.setMax(100);
-            dialog.setProgress(percentage);
-        }
-
-        @Override
-        public void onDownloadCancelled() {
-            mXWalkActivity.dismissDialog();
-            mXWalkActivity.finish();
-        }
-
-        @Override
-        public void onDownloadCompleted(Uri uri) {
-            mXWalkActivity.dismissDialog();
-
-            Log.d(TAG, "Install the Crosswalk library, " + uri.toString());
-            Intent install = new Intent(Intent.ACTION_VIEW);
-            install.setDataAndType(uri, "application/vnd.android.package-archive");
-            mXWalkActivity.startActivity(install);
-        }
-
-        @Override
-        public void onDownloadFailed(int status, int error) {
-            mXWalkActivity.dismissDialog();
-            mXWalkActivity.showDialog(mXWalkActivity.getDownloadFailedDialog(status, error));
-        }
-
-        @Override
-        public void onInitializationStarted() {
-        }
-
-        @Override
-        public void onInitializationCompleted() {
-            mXWalkActivity.mIsXWalkReady = true;
-            mXWalkActivity.onXWalkReady();
-        }
+    /**
+     * Return whether running in download mode. This method has meaning only when the return value
+     * of {@link #isXWalkReady} is true
+     *
+     * @return true if running in download mode, false otherwise
+     */
+    public boolean isDownloadMode() {
+        return mActivityDelegate.isDownloadMode();
     }
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
-        mLibraryListener = new XWalkLibraryListener(this);
-        XWalkLibraryLoader.prepareToInit();
-        XWalkLibraryLoader.startDecompression(mLibraryListener, this);
+        Runnable cancelCommand = new Runnable() {
+            @Override
+            public void run() {
+                onXWalkFailed();
+            }
+        };
+        Runnable completeCommand = new Runnable() {
+            @Override
+            public void run() {
+                onXWalkReady();
+            }
+        };
+        mActivityDelegate = new XWalkActivityDelegate(this, cancelCommand, completeCommand);
     }
 
     @Override
     protected void onResume() {
         super.onResume();
-        if (!mIsXWalkReady && !(mActiveDialog instanceof ProgressDialog)) initXWalkLibrary();
-    }
-
-    /**
-     * Returns the Resource instance comes from the application context
-     */
-    @Override
-    public Resources getResources() {
-        return getApplicationContext().getResources();
-    }
-
-    /**
-     * Returns true if the Crosswalk environment is ready, false otherwise
-     */
-    protected boolean isXWalkReady() {
-        return mIsXWalkReady;
-    }
-
-    /**
-     * This method will be invoked when the Crosswalk environment is ready
-     */
-    protected abstract void onXWalkReady();
-
-    private void initXWalkLibrary() {
-        int status = XWalkLibraryLoader.initXWalkLibrary(this);
-        if (status == XWalkLibraryInterface.STATUS_MATCH) {
-            if (mActiveDialog != null) dismissDialog();
-            if (mDecoratedBackground) {
-                getWindow().setBackgroundDrawable(null);
-                mDecoratedBackground = false;
-            }
-            XWalkLibraryLoader.startInitialization(mLibraryListener);
-            return;
-        }
-
-        if (mActiveDialog != null) return;
-
-        // Set background to screen_background_dark temporarily if default background is null
-        // to avoid the visual artifacts around the alert dialog
-        if (getWindow().getDecorView().getBackground() == null) {
-            getWindow().setBackgroundDrawableResource(android.R.drawable.screen_background_dark);
-            mDecoratedBackground = true;
-        }
-
-        if (status == XWalkLibraryInterface.STATUS_NOT_FOUND) {
-            showDialog(getStartupNotFoundDialog());
-        } else if (status == XWalkLibraryInterface.STATUS_ARCHITECTURE_MISMATCH) {
-            showDialog(getStartupArchitectureMismatchDialog());
-        } else if (status == XWalkLibraryInterface.STATUS_SIGNATURE_CHECK_ERROR) {
-            showDialog(getStartupSignatureCheckErrorDialog());
-        } else if (status == XWalkLibraryInterface.STATUS_OLDER_VERSION) {
-            showDialog(getStartupOlderVersionDialog());
-        } else if (status == XWalkLibraryInterface.STATUS_NEWER_VERSION) {
-            showDialog(getStartupNewerVersionDialog());
-        }
-    }
-
-    private void getXWalkLibrary() {
-        // The download url is defined by the meta-data item with the name of "xwalk_apk_url"
-        // under the application tag in AndroidManifest.xml. It can also be specified via
-        // --xwalk-apk-url option of make_apk script indirectly.
-        if (mXWalkApkDownloadUrl == null) {
-            try {
-                PackageManager packageManager = getPackageManager();
-                ApplicationInfo appInfo = packageManager.getApplicationInfo(
-                        getPackageName(), PackageManager.GET_META_DATA);
-                if (appInfo.metaData != null) {
-                    mXWalkApkDownloadUrl = appInfo.metaData.getString("xwalk_apk_url");
-                }
-            } catch (NameNotFoundException e) {
-            }
-            if (mXWalkApkDownloadUrl == null) mXWalkApkDownloadUrl = "";
-            Log.d(TAG, "Crosswalk APK download URL: " + mXWalkApkDownloadUrl);
-        }
-
-        if (!mXWalkApkDownloadUrl.isEmpty()) {
-            downloadXWalkLibrary();
-        } else {
-            try {
-                Intent intent = new Intent(Intent.ACTION_VIEW);
-                startActivity(intent.setData(Uri.parse(XWALK_APK_MARKET_URL)));
-            } catch (ActivityNotFoundException e) {
-                Log.d(TAG, "Market open failed");
-                showDialog(getMarketOpenFailedDialog());
-            }
-        }
-    }
-
-    private void downloadXWalkLibrary() {
-        XWalkLibraryLoader.startDownload(mLibraryListener, this, mXWalkApkDownloadUrl);
-    }
-
-    private void showDialog(Dialog dialog) {
-        mActiveDialog = dialog;
-        mActiveDialog.show();
-    }
-
-    private void dismissDialog() {
-        mActiveDialog.dismiss();
-        mActiveDialog = null;
-    }
-
-    private ProgressDialog buildProgressDialog() {
-        ProgressDialog dialog = new ProgressDialog(this);
-        dialog.setProgressStyle(ProgressDialog.STYLE_SPINNER);
-        dialog.setIndeterminate(true);
-        dialog.setCancelable(false);
-        dialog.setCanceledOnTouchOutside(false);
-        return dialog;
-    }
-
-    private AlertDialog buildAlertDialog() {
-        AlertDialog dialog = new AlertDialog.Builder(this).create();
-        dialog.setIcon(android.R.drawable.ic_dialog_alert);
-        dialog.setCancelable(false);
-        dialog.setCanceledOnTouchOutside(false);
-        return dialog;
-    }
-
-    private ProgressDialog getDecompressionProgressDialog() {
-        ProgressDialog dialog = buildProgressDialog();
-        dialog.setTitle(getString(R.string.crosswalk_install_title));
-        dialog.setMessage(getString(R.string.decompression_progress_message));
-        dialog.setButton(DialogInterface.BUTTON_POSITIVE, getString(R.string.xwalk_cancel),
-                new OnClickListener() {
-                    @Override
-                    public void onClick(DialogInterface dialog, int id) {
-                        XWalkLibraryLoader.cancelDecompression();
-                    }
-                });
-        return dialog;
-    }
-
-    private ProgressDialog getDownloadProgressDialog() {
-        ProgressDialog dialog = buildProgressDialog();
-        dialog.setTitle(getString(R.string.crosswalk_install_title));
-        dialog.setMessage(getString(R.string.download_progress_message));
-        dialog.setProgressStyle(ProgressDialog.STYLE_HORIZONTAL);
-        dialog.setButton(DialogInterface.BUTTON_NEGATIVE, getString(R.string.xwalk_cancel),
-                new OnClickListener() {
-                    @Override
-                    public void onClick(DialogInterface dialog, int id) {
-                        XWalkLibraryLoader.cancelDownload();
-                    }
-                });
-        return dialog;
-    }
-
-    private AlertDialog getDownloadFailedDialog(int status, int error) {
-        String message = getString(R.string.download_failed_message);
-        if (status == DownloadManager.STATUS_FAILED) {
-            if (error == DownloadManager.ERROR_DEVICE_NOT_FOUND) {
-                message = getString(R.string.download_failed_device_not_found) ;
-            } else if (error == DownloadManager.ERROR_INSUFFICIENT_SPACE) {
-                message = getString(R.string.download_failed_insufficient_space);
-            }
-        } else if (status == DownloadManager.STATUS_PAUSED) {
-            message = getString(R.string.download_failed_time_out);
-        }
-
-        AlertDialog dialog = buildAlertDialog();
-        dialog.setTitle(getString(R.string.crosswalk_install_title));
-        dialog.setMessage(message);
-        dialog.setButton(DialogInterface.BUTTON_POSITIVE, getString(R.string.xwalk_retry),
-                new OnClickListener() {
-                    @Override
-                    public void onClick(DialogInterface dialog, int id) {
-                        downloadXWalkLibrary();
-                    }
-                });
-        dialog.setButton(DialogInterface.BUTTON_NEGATIVE, getString(R.string.xwalk_close),
-                new OnClickListener() {
-                    @Override
-                    public void onClick(DialogInterface dialog, int id) {
-                        finish();
-                    }
-                });
-        return dialog;
-    }
-
-    private AlertDialog getMarketOpenFailedDialog() {
-        AlertDialog dialog = buildAlertDialog();
-        dialog.setTitle(getString(R.string.crosswalk_install_title));
-        dialog.setMessage(getString(R.string.market_open_failed_message));
-        dialog.setButton(DialogInterface.BUTTON_POSITIVE, getString(R.string.xwalk_close),
-                new OnClickListener() {
-                    @Override
-                    public void onClick(DialogInterface dialog, int id) {
-                        finish();
-                    }
-                });
-        return dialog;
-    }
-
-    private AlertDialog getStartupNotFoundDialog() {
-        AlertDialog dialog = buildAlertDialog();
-        dialog.setTitle(getString(R.string.startup_not_found_title));
-        dialog.setMessage(getString(R.string.startup_not_found_message));
-        dialog.setButton(DialogInterface.BUTTON_POSITIVE, getString(R.string.xwalk_continue),
-                new OnClickListener() {
-                    @Override
-                    public void onClick(DialogInterface dialog, int id) {
-                        getXWalkLibrary();
-                    }
-                });
-        dialog.setButton(DialogInterface.BUTTON_NEGATIVE, getString(R.string.xwalk_close),
-                new OnClickListener() {
-                    @Override
-                    public void onClick(DialogInterface dialog, int id) {
-                        finish();
-                    }
-                });
-        return dialog;
-    }
-
-    private AlertDialog getStartupArchitectureMismatchDialog() {
-        AlertDialog dialog = buildAlertDialog();
-        dialog.setTitle(getString(R.string.startup_architecture_mismatch_title));
-        dialog.setMessage(getString(R.string.startup_architecture_mismatch_message));
-        dialog.setButton(DialogInterface.BUTTON_POSITIVE, getString(R.string.xwalk_continue),
-                new OnClickListener() {
-                    @Override
-                    public void onClick(DialogInterface dialog, int id) {
-                        getXWalkLibrary();
-                    }
-                });
-        dialog.setButton(DialogInterface.BUTTON_NEGATIVE, getString(R.string.xwalk_close),
-                new OnClickListener() {
-                    @Override
-                    public void onClick(DialogInterface dialog, int id) {
-                        finish();
-                    }
-                });
-        return dialog;
-    }
-
-    private AlertDialog getStartupSignatureCheckErrorDialog() {
-        AlertDialog dialog = buildAlertDialog();
-        dialog.setTitle(getString(R.string.startup_signature_check_error_title));
-        dialog.setMessage(getString(R.string.startup_signature_check_error_message));
-        dialog.setButton(DialogInterface.BUTTON_NEGATIVE, getString(R.string.xwalk_close),
-                new OnClickListener() {
-                    @Override
-                    public void onClick(DialogInterface dialog, int id) {
-                        finish();
-                    }
-                });
-        return dialog;
-    }
-
-    private AlertDialog getStartupOlderVersionDialog() {
-        AlertDialog dialog = buildAlertDialog();
-        dialog.setTitle(getString(R.string.startup_older_version_title));
-        dialog.setMessage(getString(R.string.startup_older_version_message));
-        dialog.setButton(DialogInterface.BUTTON_POSITIVE, getString(R.string.xwalk_continue),
-                new OnClickListener() {
-                    @Override
-                    public void onClick(DialogInterface dialog, int id) {
-                        getXWalkLibrary();
-                    }
-                });
-        dialog.setButton(DialogInterface.BUTTON_NEGATIVE, getString(R.string.xwalk_close),
-                new OnClickListener() {
-                    @Override
-                    public void onClick(DialogInterface dialog, int id) {
-                        finish();
-                    }
-                });
-        return dialog;
-    }
-
-    private AlertDialog getStartupNewerVersionDialog() {
-        AlertDialog dialog = buildAlertDialog();
-        dialog.setTitle(getString(R.string.startup_newer_version_title));
-        dialog.setMessage(getString(R.string.startup_newer_version_message));
-        dialog.setButton(DialogInterface.BUTTON_POSITIVE, getString(R.string.xwalk_close),
-                new OnClickListener() {
-                    @Override
-                    public void onClick(DialogInterface dialog, int id) {
-                        finish();
-                    }
-                });
-        return dialog;
+        mActivityDelegate.onResume();
     }
 }

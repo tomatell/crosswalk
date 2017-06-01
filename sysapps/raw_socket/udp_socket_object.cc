@@ -17,7 +17,7 @@ using namespace xwalk::jsapi::raw_socket; // NOLINT
 
 namespace {
 
-const unsigned kBufferSize = 4096;
+const size_t kBufferSize = 4096;
 
 }  // namespace
 
@@ -67,8 +67,8 @@ void UDPSocketObject::DoRead() {
     OnRead(ret);
 }
 
-void UDPSocketObject::OnInit(scoped_ptr<XWalkExtensionFunctionInfo> info) {
-  scoped_ptr<Init::Params> params(Init::Params::Create(*info->arguments()));
+void UDPSocketObject::OnInit(std::unique_ptr<XWalkExtensionFunctionInfo> info) {
+  std::unique_ptr<Init::Params> params(Init::Params::Create(*info->arguments()));
   if (!params) {
     LOG(WARNING) << "Malformed parameters passed to " << info->name();
     setReadyState(READY_STATE_CLOSED);
@@ -87,8 +87,8 @@ void UDPSocketObject::OnInit(scoped_ptr<XWalkExtensionFunctionInfo> info) {
   }
 
   if (!params->options->local_address.empty()) {
-    net::IPAddressNumber ip_number;
-    if (!net::ParseIPLiteralToNumber(params->options->local_address,
+    net::IPAddress ip_number;
+    if (!net::ParseURLHostnameToAddress(params->options->local_address,
                                      &ip_number)) {
       LOG(WARNING) << "Invalid IP address " << params->options->local_address;
       setReadyState(READY_STATE_CLOSED);
@@ -141,32 +141,32 @@ void UDPSocketObject::OnInit(scoped_ptr<XWalkExtensionFunctionInfo> info) {
     OnConnectionOpen(ret);
 }
 
-void UDPSocketObject::OnClose(scoped_ptr<XWalkExtensionFunctionInfo> info) {
+void UDPSocketObject::OnClose(std::unique_ptr<XWalkExtensionFunctionInfo> info) {
   socket_.reset();
 }
 
-void UDPSocketObject::OnSuspend(scoped_ptr<XWalkExtensionFunctionInfo> info) {
+void UDPSocketObject::OnSuspend(std::unique_ptr<XWalkExtensionFunctionInfo> info) {
   is_suspended_ = true;
 }
 
-void UDPSocketObject::OnResume(scoped_ptr<XWalkExtensionFunctionInfo> info) {
+void UDPSocketObject::OnResume(std::unique_ptr<XWalkExtensionFunctionInfo> info) {
   is_suspended_ = false;
 }
 
 void UDPSocketObject::OnJoinMulticast(
-    scoped_ptr<XWalkExtensionFunctionInfo> info) {
+    std::unique_ptr<XWalkExtensionFunctionInfo> info) {
 }
 
 void UDPSocketObject::OnLeaveMulticast(
-    scoped_ptr<XWalkExtensionFunctionInfo> info) {
+    std::unique_ptr<XWalkExtensionFunctionInfo> info) {
 }
 
 void UDPSocketObject::OnSendString(
-    scoped_ptr<XWalkExtensionFunctionInfo> info) {
+    std::unique_ptr<XWalkExtensionFunctionInfo> info) {
   if (!socket_ || has_write_pending_)
     return;
 
-  scoped_ptr<SendDOMString::Params>
+  std::unique_ptr<SendDOMString::Params>
       params(SendDOMString::Params::Create(*info->arguments()));
   if (!params) {
     LOG(WARNING) << "Malformed parameters passed to " << info->name();
@@ -212,7 +212,7 @@ void UDPSocketObject::OnRead(int status) {
     return;
   }
 
-  scoped_ptr<base::Value> data(base::BinaryValue::CreateWithCopiedBuffer(
+  std::unique_ptr<base::Value> data(base::BinaryValue::CreateWithCopiedBuffer(
       static_cast<char*>(read_buffer_->data()), status));
 
   UDPMessageEvent event;
@@ -221,11 +221,11 @@ void UDPSocketObject::OnRead(int status) {
   event.remote_port = from_.port();
   event.remote_address = from_.ToStringWithoutPort();
 
-  scoped_ptr<base::ListValue> eventData(new base::ListValue);
+  std::unique_ptr<base::ListValue> eventData(new base::ListValue);
   eventData->Append(event.ToValue().release());
 
   if (!is_suspended_)
-    DispatchEvent("message", eventData.Pass());
+    DispatchEvent("message", std::move(eventData));
 
   DoRead();
 }
@@ -271,15 +271,17 @@ void UDPSocketObject::OnSend(int status) {
       addresses_[0],
       base::Bind(&UDPSocketObject::OnWrite, base::Unretained(this)));
 
-  if (ret == net::ERR_IO_PENDING) {
-    has_write_pending_ = true;
-  } else if (ret == write_buffer_size_) {
-    has_write_pending_ = false;
+  if (ret < net::OK) {
+    if (ret == net::ERR_IO_PENDING) {
+      has_write_pending_ = true;
+    } else {
+      socket_->Close();
+      setReadyState(READY_STATE_CLOSED);
+      DispatchEvent("close");
+      return;
+    }
   } else {
-    socket_->Close();
-    setReadyState(READY_STATE_CLOSED);
-    DispatchEvent("close");
-    return;
+    has_write_pending_ = false;
   }
 
   if (!is_reading_ && socket_->is_connected())

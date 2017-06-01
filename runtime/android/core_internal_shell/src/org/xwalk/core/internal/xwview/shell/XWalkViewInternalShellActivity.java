@@ -91,7 +91,7 @@ public class XWalkViewInternalShellActivity extends Activity {
 
                 if (bundle.containsKey("url")) {
                     String extra = bundle.getString("url");
-                    if (mView != null) mView.load(sanitizeUrl(extra), null);
+                    if (mView != null) mView.loadUrl(sanitizeUrl(extra));
                 }
             }
         };
@@ -103,11 +103,6 @@ public class XWalkViewInternalShellActivity extends Activity {
         super.onDestroy();
         unregisterReceiver(mReceiver);
         mView.onDestroy();
-    }
-
-    @Override
-    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
-        if (mView != null) mView.onActivityResult(requestCode, resultCode, data);
     }
 
     @Override
@@ -148,7 +143,7 @@ public class XWalkViewInternalShellActivity extends Activity {
                 }
 
                 if (mView == null) return true;
-                mView.load(sanitizeUrl(mUrlTextView.getText().toString()), null);
+                mView.loadUrl(sanitizeUrl(mUrlTextView.getText().toString()));
                 mUrlTextView.clearFocus();
                 setKeyboardVisibilityForUrl(false);
                 return true;

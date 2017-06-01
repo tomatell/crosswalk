@@ -6,9 +6,9 @@
 #define XWALK_APPLICATION_BROWSER_APPLICATION_SYSTEM_H_
 
 #include <map>
+#include <memory>
 
 #include "base/memory/ref_counted.h"
-#include "base/memory/scoped_ptr.h"
 #include "xwalk/extensions/common/xwalk_extension_vector.h"
 
 class GURL;
@@ -38,7 +38,7 @@ class ApplicationSystem {
  public:
   virtual ~ApplicationSystem();
 
-  static scoped_ptr<ApplicationSystem> Create(
+  static std::unique_ptr<ApplicationSystem> Create(
       XWalkBrowserContext* browser_context);
 
   // The ApplicationService is created at startup.
@@ -49,9 +49,9 @@ class ApplicationSystem {
   // Launches an application based on the given command line, there are
   // different ways to inform which application should be launched
   //
-  // (1) app_id from the binary name (used in Tizen);
-  // (3) launching a directory that contains an extracted package.
-  // (4) launching from the path to the packaged application file.
+  // (1) app_id from the binary name;
+  // (2) launching a directory that contains an extracted package.
+  // (3) launching from the path to the packaged application file.
   //
   // The parameter `url` contains the current URL Crosswalk is considering to
   // load, and the output parameter `run_default_message_loop` controls whether
@@ -70,7 +70,7 @@ class ApplicationSystem {
 
   // Note: initialization order matters.
   XWalkBrowserContext* browser_context_;
-  scoped_ptr<ApplicationService> application_service_;
+  std::unique_ptr<ApplicationService> application_service_;
 
  private:
   DISALLOW_COPY_AND_ASSIGN(ApplicationSystem);

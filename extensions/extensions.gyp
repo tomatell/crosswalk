@@ -1,14 +1,17 @@
 {
   'targets': [
     {
+      'variables': {
+        'chromium_code': 1,
+      },
       'target_name': 'xwalk_extensions',
       'type': 'static_library',
       'dependencies': [
         '../../base/base.gyp:base',
         '../../ipc/ipc.gyp:ipc',
         '../../url/url.gyp:url_lib',
-        '../../v8/tools/gyp/v8.gyp:v8',
-        '../../third_party/WebKit/public/blink_headers.gyp:blink_headers',
+        '../../v8/src/v8.gyp:v8',
+        '../../third_party/WebKit/public/blink.gyp:blink',
         'extensions_resources.gyp:xwalk_extensions_resources',
       ],
       'includes': [
@@ -25,6 +28,8 @@
         'browser/xwalk_extension_service.h',
         'common/android/xwalk_extension_android.cc',
         'common/android/xwalk_extension_android.h',
+        'common/android/xwalk_native_extension_loader_android.cc',
+        'common/android/xwalk_native_extension_loader_android.h',
         'common/xwalk_extension.cc',
         'common/xwalk_extension.h',
         'common/xwalk_extension_messages.cc',
@@ -48,6 +53,7 @@
         'extension_process/xwalk_extension_process_main.cc',
         'extension_process/xwalk_extension_process_main.h',
         'public/XW_Extension.h',
+        'public/XW_Extension_Message_2.h',
         'public/XW_Extension_Permissions.h',
         'public/XW_Extension_SyncMessage.h',
         'renderer/xwalk_extension_client.cc',

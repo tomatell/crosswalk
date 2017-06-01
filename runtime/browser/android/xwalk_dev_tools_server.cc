@@ -9,8 +9,8 @@
 #include <unistd.h>
 #include <vector>
 
+#include "base/android/context_utils.h"
 #include "base/android/jni_string.h"
-#include "base/basictypes.h"
 #include "base/bind.h"
 #include "base/callback.h"
 #include "base/compiler_specific.h"
@@ -31,7 +31,6 @@
 #include "grit/xwalk_resources.h"
 #include "jni/XWalkDevToolsServer_jni.h"
 #include "net/base/net_errors.h"
-#include "net/socket/unix_domain_listen_socket_posix.h"
 #include "ui/base/resource/resource_bundle.h"
 #include "xwalk/runtime/common/xwalk_content_client.h"
 
@@ -77,6 +76,10 @@ class XWalkAndroidDevToolsHttpHandlerDelegate
   std::string GetPageThumbnailData(const GURL& url) override {
     return std::string();
   }
+  content::DevToolsExternalAgentProxyDelegate*
+      HandleWebSocketConnection(const std::string& path) override {
+    return nullptr;
+  }
 
  private:
   DISALLOW_COPY_AND_ASSIGN(XWalkAndroidDevToolsHttpHandlerDelegate);
@@ -94,15 +97,15 @@ class UnixDomainServerSocketFactory
 
  private:
   // content::DevToolsHttpHandler::ServerSocketFactory.
-  scoped_ptr<net::ServerSocket> CreateForHttpServer() override {
-    scoped_ptr<net::ServerSocket> socket(
+  std::unique_ptr<net::ServerSocket> CreateForHttpServer() override {
+    std::unique_ptr<net::UnixDomainServerSocket> socket(
         new net::UnixDomainServerSocket(
             auth_callback_,
             true /* use_abstract_namespace */));
-    if (socket->ListenWithAddressAndPort(socket_name_, 0, kBackLog) != net::OK)
-      return scoped_ptr<net::ServerSocket>();
+    if (socket->BindAndListen(socket_name_, kBackLog) != net::OK)
+      return std::unique_ptr<net::ServerSocket>();
 
-    return socket;
+    return std::move(socket);
   }
 
   const std::string socket_name_;
@@ -147,10 +150,10 @@ void XWalkDevToolsServer::Start(bool allow_debug_permission,
       base::Bind(&XWalkDevToolsServer::CanUserConnectToDevTools,
                  base::Unretained(this));
 
-  scoped_ptr<devtools_http_handler::DevToolsHttpHandler::ServerSocketFactory>
+  std::unique_ptr<devtools_http_handler::DevToolsHttpHandler::ServerSocketFactory>
       factory(new UnixDomainServerSocketFactory(socket_name_, auth_callback));
   devtools_http_handler_.reset(new devtools_http_handler::DevToolsHttpHandler(
-      factory.Pass(),
+      std::move(factory),
       base::StringPrintf(kFrontEndURL, BLINK_UPSTREAM_REVISION),
       new XWalkAndroidDevToolsHttpHandlerDelegate(),
       base::FilePath(),
@@ -166,7 +169,7 @@ void XWalkDevToolsServer::Stop() {
 }
 
 bool XWalkDevToolsServer::IsStarted() const {
-  return devtools_http_handler_;
+  return !!devtools_http_handler_;
 }
 
 bool RegisterXWalkDevToolsServer(JNIEnv* env) {
@@ -174,25 +177,27 @@ bool RegisterXWalkDevToolsServer(JNIEnv* env) {
 }
 
 static jlong InitRemoteDebugging(JNIEnv* env,
-                                jobject obj,
-                                jstring socketName) {
+                                const JavaParamRef<jobject>& obj,
+                                const JavaParamRef<jstring>& socketName) {
   XWalkDevToolsServer* server = new XWalkDevToolsServer(
       base::android::ConvertJavaStringToUTF8(env, socketName));
   return reinterpret_cast<intptr_t>(server);
 }
 
-static void DestroyRemoteDebugging(JNIEnv* env, jobject obj, jlong server) {
+static void DestroyRemoteDebugging(JNIEnv* env,
+                                   const JavaParamRef<jobject>& obj,
+                                   jlong server) {
   delete reinterpret_cast<XWalkDevToolsServer*>(server);
 }
 
 static jboolean IsRemoteDebuggingEnabled(JNIEnv* env,
-                                         jobject obj,
+                                         const JavaParamRef<jobject>& obj,
                                          jlong server) {
   return reinterpret_cast<XWalkDevToolsServer*>(server)->IsStarted();
 }
 
 static void SetRemoteDebuggingEnabled(JNIEnv* env,
-                                      jobject obj,
+                                      const JavaParamRef<jobject>& obj,
                                       jlong server,
                                       jboolean enabled,
                                       jboolean allow_debug_permission,

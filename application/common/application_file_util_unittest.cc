@@ -7,18 +7,17 @@
 #include "base/files/file_util.h"
 #include "base/files/scoped_temp_dir.h"
 #include "base/json/json_string_value_serializer.h"
+#include "base/memory/ptr_util.h"
 #include "base/path_service.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
 #include "xwalk/application/common/application_data.h"
 #include "xwalk/application/common/application_manifest_constants.h"
-#include "xwalk/application/common/manifest.h"
 #include "xwalk/application/common/constants.h"
+#include "xwalk/application/common/id_util.h"
+#include "xwalk/application/common/manifest.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "ui/base/l10n/l10n_util.h"
-
-using xwalk::application::ApplicationData;
-using xwalk::application::Manifest;
 
 namespace keys = xwalk::application_manifest_keys;
 
@@ -41,7 +40,8 @@ TEST_F(ApplicationFileUtilTest, LoadApplicationWithValidPath) {
 
   std::string error;
   scoped_refptr<ApplicationData> application(LoadApplication(
-          install_dir, std::string(), ApplicationData::LOCAL_DIRECTORY,
+          install_dir, GenerateIdForPath(install_dir),
+          ApplicationData::LOCAL_DIRECTORY,
           Manifest::TYPE_MANIFEST, &error));
   ASSERT_TRUE(application.get() != NULL);
   EXPECT_EQ("The first application that I made.", application->Description());
@@ -82,7 +82,8 @@ TEST_F(ApplicationFileUtilTest,
 
   std::string error;
   scoped_refptr<ApplicationData> application(LoadApplication(
-          install_dir, std::string(), ApplicationData::LOCAL_DIRECTORY,
+          install_dir, GenerateIdForPath(install_dir),
+          ApplicationData::LOCAL_DIRECTORY,
           Manifest::TYPE_MANIFEST, &error));
   ASSERT_TRUE(application.get() == NULL);
   ASSERT_FALSE(error.empty());
@@ -97,10 +98,11 @@ static scoped_refptr<ApplicationData> LoadApplicationManifest(
     ApplicationData::SourceType location,
     int extra_flags,
     std::string* error) {
-  scoped_ptr<Manifest> manifest = make_scoped_ptr(
-      new Manifest(make_scoped_ptr(values->DeepCopy())));
+  std::unique_ptr<Manifest> manifest = base::WrapUnique(
+      new Manifest(base::WrapUnique(values->DeepCopy())));
   scoped_refptr<ApplicationData> application = ApplicationData::Create(
-      manifest_dir, std::string(), location, manifest.Pass(), error);
+      manifest_dir, GenerateIdForPath(manifest_dir), location,
+          std::move(manifest), error);
   return application;
 }
 
@@ -111,7 +113,7 @@ static scoped_refptr<ApplicationData> LoadApplicationManifest(
     int extra_flags,
     std::string* error) {
   JSONStringValueDeserializer deserializer(manifest_value);
-  scoped_ptr<base::Value> result(deserializer.Deserialize(NULL, error));
+  std::unique_ptr<base::Value> result(deserializer.Deserialize(NULL, error));
   if (!result.get())
     return NULL;
   CHECK_EQ(base::Value::TYPE_DICTIONARY, result->GetType());

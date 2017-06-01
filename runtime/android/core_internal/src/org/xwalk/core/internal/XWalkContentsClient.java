@@ -19,7 +19,10 @@ import android.view.KeyEvent;
 import android.view.View;
 import android.webkit.ConsoleMessage;
 import android.webkit.ValueCallback;
-import android.webkit.WebResourceResponse;
+
+import java.security.PrivateKey;
+import java.util.ArrayList;
+import java.util.HashMap;
 
 import org.chromium.content.browser.ContentViewClient;
 import org.chromium.content_public.browser.WebContents;
@@ -45,19 +48,27 @@ abstract class XWalkContentsClient extends ContentViewClient {
 
     private double mDIPScale;
 
+
     public class XWalkWebContentsObserver extends WebContentsObserver {
         public XWalkWebContentsObserver(WebContents webContents) {
             super(webContents);
         }
 
         @Override
-        public void didStopLoading(String url) {
-            onPageFinished(url);
+        public void didChangeThemeColor(int color) {
+            boolean themecolor = XWalkPreferencesInternal.getValue(
+                    XWalkPreferencesInternal.ENABLE_THEME_COLOR);
+            if(themecolor) onDidChangeThemeColor(color);
         }
 
         @Override
-        public void didFailLoad(boolean isProvisionalLoad,
-                boolean isMainFrame, int errorCode, String description, String failingUrl) {
+        public void didStopLoading(String url) {
+            mCallbackHelper.postOnPageFinished(url);
+        }
+
+        @Override
+        public void didFailLoad(boolean isProvisionalLoad, boolean isMainFrame, int errorCode,
+                String description, String failingUrl, boolean wasIgnoredByHandler) {
             if (errorCode == NetError.ERR_ABORTED || !isMainFrame) {
                 // This error code is generated for the following reasons:
                 // - XWalkViewInternal.stopLoading is called,
@@ -88,7 +99,7 @@ abstract class XWalkContentsClient extends ContentViewClient {
         }
 
         @Override
-        public void documentLoadedInFrame(long frameId) {
+        public void documentLoadedInFrame(long frameId, boolean isMainFrame) {
             onDocumentLoadedInFrame(frameId);
         }
     }
@@ -119,16 +130,32 @@ abstract class XWalkContentsClient extends ContentViewClient {
     }
 
     //--------------------------------------------------------------------------------------------
-    //             XWalkViewInternal specific methods that map directly to XWalkViewClient / XWalkWebChromeClient
+    //  XWalkViewInternal specific methods that map directly to XWalkViewClient/XWalkWebChromeClient
     //--------------------------------------------------------------------------------------------
 
+    /**
+     * Parameters for the {@link XWalkContentsClient#shouldInterceptRequest} method.
+     */
+    public static class WebResourceRequestInner {
+        // Url of the request.
+        public String url;
+        // Is this for the main frame or a child iframe?
+        public boolean isMainFrame;
+        // Was a gesture associated with the request? Don't trust can easily be spoofed.
+        public boolean hasUserGesture;
+        // Method used (GET/POST/OPTIONS)
+        public String method;
+        // Headers that would have been sent to server.
+        public HashMap<String, String> requestHeaders;
+    }
     public abstract void getVisitedHistory(ValueCallback<String[]> callback);
 
     public abstract void doUpdateVisitedHistory(String url, boolean isReload);
 
     public abstract void onProgressChanged(int progress);
 
-    public abstract WebResourceResponse shouldInterceptRequest(String url);
+    public abstract XWalkWebResourceResponseInternal shouldInterceptRequest(
+            WebResourceRequestInner request);
 
     public abstract void onResourceLoadStarted(String url);
 
@@ -142,10 +169,15 @@ abstract class XWalkContentsClient extends ContentViewClient {
 
     public abstract boolean onConsoleMessage(ConsoleMessage consoleMessage);
 
-    public abstract void onReceivedHttpAuthRequest(XWalkHttpAuthHandler handler,
+    public abstract void onReceivedHttpAuthRequest(XWalkHttpAuthHandlerInternal handler,
             String host, String realm);
 
     public abstract void onReceivedSslError(ValueCallback<Boolean> callback, SslError error);
+
+    public abstract void onReceivedClientCertRequest(ClientCertRequestInternal handler);    
+
+    public abstract void onReceivedResponseHeaders(WebResourceRequestInner request,
+            XWalkWebResourceResponseInternal response);
 
     public abstract void onReceivedLoginRequest(String realm, String account, String args);
 
@@ -169,9 +201,9 @@ abstract class XWalkContentsClient extends ContentViewClient {
 
     protected abstract void onCloseWindow();
 
-    public abstract void onDocumentLoadedInFrame(long frameId);
+    public abstract void onDidChangeThemeColor(int color);
 
-    public abstract void onReceivedIcon(Bitmap bitmap);
+    public abstract void onDocumentLoadedInFrame(long frameId);
 
     protected abstract void onRequestFocus();
 
@@ -199,17 +231,20 @@ abstract class XWalkContentsClient extends ContentViewClient {
     // TODO (michaelbai): Remove this method once the same method remove from
     // XWalkContentsClientAdapter.
     public abstract void onShowCustomView(View view,
-           int requestedOrientation, XWalkWebChromeClient.CustomViewCallback callback);
+           int requestedOrientation, CustomViewCallbackInternal callback);
 
     // TODO (michaelbai): This method should be abstract, having empty body here
     // makes the merge to the Android easy.
-    public void onShowCustomView(View view, XWalkWebChromeClient.CustomViewCallback callback) {
+    public void onShowCustomView(View view, CustomViewCallbackInternal callback) {
         onShowCustomView(view, ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED, callback);
     }
 
     public abstract void onHideCustomView();
 
     public abstract void didFinishLoad(String url);
+
+    public abstract void provideClientCertificateResponse(int id, byte[][] certChain,
+            PrivateKey privateKey);
 
     //--------------------------------------------------------------------------------------------
     //                              Other XWalkViewInternal-specific methods

@@ -39,7 +39,7 @@ public class GeolocationPermissionTest extends XWalkViewInternalTestBase {
     public void testGeolocationPermissionShowPrompt() throws Throwable {
         class TestWebChromeClient extends XWalkWebChromeClient {
             public TestWebChromeClient() {
-                super(getXWalkView());
+                super();
             }
 
             private int mCalledCount = 0;
@@ -47,8 +47,6 @@ public class GeolocationPermissionTest extends XWalkViewInternalTestBase {
             @Override
             public void onGeolocationPermissionsShowPrompt(String origin,
                     XWalkGeolocationPermissions.Callback callback) {
-                // The origin is empty for data stream.
-                assertTrue(origin.isEmpty());
                 callback.invoke(origin, true, true);
                 mCalledCount++;
             }
@@ -64,7 +62,8 @@ public class GeolocationPermissionTest extends XWalkViewInternalTestBase {
                 getXWalkView().setXWalkWebChromeClient(testWebChromeClient);
             }
         });
-        loadAssetFile("geolocation.html");
+        String fileContent = getFileContent("geolocation.html");
+        loadDataWithBaseUrlSync(fileContent, "text/html", false, "https://google.com/", null);
         getInstrumentation().runOnMainSync(new Runnable() {
             @Override
             public void run() {
@@ -81,7 +80,7 @@ public class GeolocationPermissionTest extends XWalkViewInternalTestBase {
     public void testGeolocationPermissionHidePrompt() throws Throwable {
         class TestWebChromeClient extends XWalkWebChromeClient {
             public TestWebChromeClient() {
-                super(getXWalkView());
+                super();
             }
 
             @Override

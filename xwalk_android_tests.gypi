@@ -34,32 +34,34 @@
         'xwalk_core_internal_java',
         'xwalk_core_java',
         'xwalk_core_shell_apk_pak',
+        'libxwalkdummy',
       ],
       'variables': {
         'apk_name': 'XWalkCoreShell',
         'java_in_dir': 'runtime/android/core_shell',
         'resource_dir': 'runtime/android/core_shell/res',
+        'native_lib_target': 'libxwalkdummy',
+        'additional_bundled_libs': [
+          '<(PRODUCT_DIR)/lib/libxwalkcore.>(android_product_extension)',
+        ],
         'additional_input_paths': [
+          '<(PRODUCT_DIR)/xwalk_xwview/assets/www/cross_origin.html',
           '<(PRODUCT_DIR)/xwalk_xwview/assets/www/index.html',
           '<(PRODUCT_DIR)/xwalk_xwview/assets/www/request_focus_left_frame.html',
           '<(PRODUCT_DIR)/xwalk_xwview/assets/www/request_focus_main.html',
           '<(PRODUCT_DIR)/xwalk_xwview/assets/www/request_focus_right_frame.html',
           '<(PRODUCT_DIR)/xwalk_xwview/assets/www/request_focus_right_frame1.html',
+          '<(PRODUCT_DIR)/xwalk_xwview/assets/www/asset_file.html',
           '<(PRODUCT_DIR)/xwalk_xwview/assets/xwalk.pak',
-          '<(PRODUCT_DIR)/xwalk_xwview/assets/jsapi/contacts_api.js',
-          '<(PRODUCT_DIR)/xwalk_xwview/assets/jsapi/device_capabilities_api.js',
+          '<(PRODUCT_DIR)/xwalk_xwview/assets/xwalk_100_percent.pak',
           '<(PRODUCT_DIR)/xwalk_xwview/assets/jsapi/launch_screen_api.js',
-          '<(PRODUCT_DIR)/xwalk_xwview/assets/jsapi/messaging_api.js',
-          '<(PRODUCT_DIR)/xwalk_xwview/assets/jsapi/presentation_api.js',
+          '<(PRODUCT_DIR)/xwalk_xwview/assets/jsapi/wifidirect_api.js',
         ],
         'conditions': [
           ['icu_use_data_file_flag==1', {
             'additional_input_paths': [
               '<(PRODUCT_DIR)/xwalk_xwview/assets/icudtl.dat',
             ],
-          }],
-          ['use_lzma==0', {
-            'native_lib_target': 'libxwalkcore',
           }],
         ],
         'asset_location': '<(PRODUCT_DIR)/xwalk_xwview/assets',
@@ -73,32 +75,19 @@
             'test/android/data/request_focus_main.html',
             'test/android/data/request_focus_right_frame.html',
             'test/android/data/request_focus_right_frame1.html',
+            'test/android/data/asset_file.html',
+            'test/android/data/www/cross_origin.html',
           ],
         },
         {
           'destination': '<(PRODUCT_DIR)/xwalk_xwview/assets/jsapi',
           'files': [
             'experimental/launch_screen/launch_screen_api.js',
-            'experimental/presentation/presentation_api.js',
-            'runtime/android/core_internal/src/org/xwalk/core/internal/extension/api/contacts/contacts_api.js',
-            'runtime/android/core_internal/src/org/xwalk/core/internal/extension/api/device_capabilities/device_capabilities_api.js',
-            'runtime/android/core_internal/src/org/xwalk/core/internal/extension/api/messaging/messaging_api.js',
+            'experimental/wifidirect/wifidirect_api.js',
           ],
         },
       ],
-      'conditions': [
-        ['use_lzma==1', {
-          'dependencies': [
-            'libxwalkdummy',
-          ],
-          'includes': [ 'xwalk_lzma.gypi' ],
-        },{
-          'dependencies': [
-            'libxwalkcore',
-          ],
-          'includes': [ '../build/java_apk.gypi' ],
-        }],
-      ],
+      'includes': [ '../build/java_apk.gypi' ],
     },
     {
       'target_name': 'xwalk_core_shell_apk_pak',
@@ -111,6 +100,7 @@
           'destination': '<(PRODUCT_DIR)/xwalk_xwview/assets',
           'files': [
             '<(PRODUCT_DIR)/xwalk.pak',
+            '<(PRODUCT_DIR)/xwalk_100_percent.pak',
           ],
           'conditions': [
             ['icu_use_data_file_flag==1', {
@@ -156,8 +146,9 @@
           '<(PRODUCT_DIR)/xwalk_xwview_test/assets/create_window_1.html',
           '<(PRODUCT_DIR)/xwalk_xwview_test/assets/create_window_2.html',
           '<(PRODUCT_DIR)/xwalk_xwview_test/assets/console_message.html',
-          '<(PRODUCT_DIR)/xwalk_xwview_test/assets/echo.html',
-          '<(PRODUCT_DIR)/xwalk_xwview_test/assets/echoSync.html',
+          '<(PRODUCT_DIR)/xwalk_xwview_test/assets/echo_binary_java.html',
+          '<(PRODUCT_DIR)/xwalk_xwview_test/assets/echo_java.html',
+          '<(PRODUCT_DIR)/xwalk_xwview_test/assets/echo_sync_java.html',
           '<(PRODUCT_DIR)/xwalk_xwview_test/assets/favicon.html',
           '<(PRODUCT_DIR)/xwalk_xwview_test/assets/file_chooser.html',
           '<(PRODUCT_DIR)/xwalk_xwview_test/assets/framesEcho.html',
@@ -168,6 +159,8 @@
           '<(PRODUCT_DIR)/xwalk_xwview_test/assets/js_modal_dialog.html',
           '<(PRODUCT_DIR)/xwalk_xwview_test/assets/new_window.html',
           '<(PRODUCT_DIR)/xwalk_xwview_test/assets/profile.html',
+          '<(PRODUCT_DIR)/xwalk_xwview_test/assets/read_video_data.html',
+          '<(PRODUCT_DIR)/xwalk_xwview_test/assets/save_video_data.html',
           '<(PRODUCT_DIR)/xwalk_xwview_test/assets/scale_changed.html',
           '<(PRODUCT_DIR)/xwalk_xwview_test/assets/window.close.html',
         ],
@@ -181,8 +174,9 @@
             'test/android/data/create_window_1.html',
             'test/android/data/create_window_2.html',
             'test/android/data/console_message.html',
-            'test/android/data/echo.html',
-            'test/android/data/echoSync.html',
+            'test/android/data/echo_binary_java.html',
+            'test/android/data/echo_java.html',
+            'test/android/data/echo_sync_java.html',
             'test/android/data/favicon.html',
             'test/android/data/file_chooser.html',
             'test/android/data/framesEcho.html',
@@ -193,6 +187,8 @@
             'test/android/data/js_modal_dialog.html',
             'test/android/data/new_window.html',
             'test/android/data/profile.html',
+            'test/android/data/read_video_data.html',
+            'test/android/data/save_video_data.html',
             'test/android/data/scale_changed.html',
             'test/android/data/window.close.html',
           ],
@@ -201,61 +197,10 @@
       'includes': [ '../build/java_apk.gypi' ],
     },
     {
-      'target_name': 'xwalk_core_unittests',
-      'type': '<(gtest_target_type)',
-      'dependencies': [
-        '../base/base.gyp:test_support_base',
-        '../net/net.gyp:net_test_support',
-        '../testing/android/native_test.gyp:native_test_native_code',
-        '../testing/gmock.gyp:gmock',
-        '../testing/gtest.gyp:gtest',
-      ],
-      'include_dirs': [
-        '..',
-      ],
-      'sources': [
-        'runtime/common/android/xwalk_core_tests.cc',
-      ],
-    },
-    {
-      'target_name': 'xwalk_core_unittests_java',
-      'type': 'none',
-      'dependencies': [
-      ],
-      'variables': {
-        'java_in_dir': 'test/android/unittestjava',
-      },
-      # TODO: supress gyp error: "'find ../cameo_webview/unittestjava  -name "*.java"' returned exit status 1"
-      # 'includes': [ '../build/java.gypi' ],
-    },
-    {
-      'target_name': 'xwalk_core_unittests_jni',
-      'type': 'none',
-      'sources': [
-      ],
-      'variables': {
-        'jni_gen_package': 'xwalk_core_unittests',
-      },
-      'includes': [ '../build/jni_generator.gypi' ],
-    },
-    {
-      'target_name': 'xwalk_core_unittests_apk',
-      'type': 'none',
-      'dependencies': [
-        'xwalk_core_unittests',
-        'xwalk_core_unittests_java',
-        'xwalk_core_unittests_jni',
-      ],
-      'variables': {
-        'test_suite_name': 'xwalk_core_unittests',
-        'input_shlib_path': '<(SHARED_LIB_DIR)/<(SHARED_LIB_PREFIX)xwalk_core_unittests<(SHARED_LIB_SUFFIX)',
-      },
-      'includes': [ '../build/apk_test.gypi' ],
-    },
-    {
       'target_name': 'xwalk_runtime_client_shell_apk',
       'type': 'none',
       'dependencies': [
+        'extensions/external_extension_sample.gyp:echo_extension',
         'xwalk_app_runtime_java',
         'xwalk_runtime_client_test_utils_java',
       ],
@@ -264,11 +209,15 @@
         'java_in_dir': 'app/android/runtime_client_shell',
         'resource_dir': 'app/android/runtime_client_shell/res',
         'is_test_apk': 1,
+        'native_lib_target': 'libxwalkdummy',
+        'additional_bundled_libs': [
+          '<(PRODUCT_DIR)/lib/libecho_extension.>(android_product_extension)',
+        ],
         'additional_input_paths': [
-          '<(PRODUCT_DIR)/runtime_client_shell/assets/extensions-config.json',
           '<(PRODUCT_DIR)/runtime_client_shell/assets/index.html',
           '<(PRODUCT_DIR)/runtime_client_shell/assets/manifest.json',
-          '<(PRODUCT_DIR)/runtime_client_shell/assets/myextension/myextension.js',
+          '<(PRODUCT_DIR)/runtime_client_shell/assets/xwalk-extensions/myextension/myextension.js',
+          '<(PRODUCT_DIR)/runtime_client_shell/assets/xwalk-extensions/myextension/myextension.json',
           '<(PRODUCT_DIR)/runtime_client_shell/assets/sampapp-icon-helloworld.png',
           '<(PRODUCT_DIR)/runtime_client_shell/assets/www/manifest_self.json',
           '<(PRODUCT_DIR)/runtime_client_shell/assets/www/manifest_inline_script.json',
@@ -284,14 +233,16 @@
           'destination': '<(PRODUCT_DIR)/runtime_client_shell/assets',
           'files': [
             'test/android/data/manifest.json',
-            'test/android/data/extensions-config.json',
             'test/android/data/index.html',
             'test/android/data/sampapp-icon-helloworld.png',
           ],
         },
         {
-          'destination': '<(PRODUCT_DIR)/runtime_client_shell/assets/myextension',
-          'files': ['test/android/data/myextension/myextension.js'],
+          'destination': '<(PRODUCT_DIR)/runtime_client_shell/assets/xwalk-extensions/myextension',
+          'files': [
+            'test/android/data/myextension/myextension.js',
+            'test/android/data/myextension/myextension.json',
+          ],
         },
         {
           'destination': '<(PRODUCT_DIR)/runtime_client_shell/assets/www',
@@ -319,6 +270,8 @@
       'target_name': 'xwalk_runtime_client_embedded_shell_apk',
       'type': 'none',
       'dependencies': [
+        'extensions/external_extension_sample.gyp:echo_extension',
+        'libxwalkdummy',
         'xwalk_app_runtime_java',
         'xwalk_core_internal_java',
         'xwalk_runtime_client_embedded_shell_apk_pak',
@@ -328,18 +281,21 @@
         'apk_name': 'XWalkRuntimeClientEmbeddedShell',
         'java_in_dir': 'app/android/runtime_client_embedded_shell',
         'resource_dir': 'app/android/runtime_client_embedded_shell/res',
+        'native_lib_target': 'libxwalkdummy',
+        'additional_bundled_libs': [
+          '<(PRODUCT_DIR)/lib/libecho_extension.>(android_product_extension)',
+          '<(PRODUCT_DIR)/lib/libxwalkcore.>(android_product_extension)',
+        ],
         'additional_input_paths': [
-          '<(PRODUCT_DIR)/runtime_client_embedded_shell/assets/extensions-config.json',
           '<(PRODUCT_DIR)/runtime_client_embedded_shell/assets/index.html',
-          '<(PRODUCT_DIR)/runtime_client_embedded_shell/assets/jsapi/contacts_api.js',
-          '<(PRODUCT_DIR)/runtime_client_embedded_shell/assets/jsapi/device_capabilities_api.js',
           '<(PRODUCT_DIR)/runtime_client_embedded_shell/assets/jsapi/launch_screen_api.js',
-          '<(PRODUCT_DIR)/runtime_client_embedded_shell/assets/jsapi/messaging_api.js',
-          '<(PRODUCT_DIR)/runtime_client_embedded_shell/assets/jsapi/presentation_api.js',
+          '<(PRODUCT_DIR)/runtime_client_embedded_shell/assets/jsapi/wifidirect_api.js',
           '<(PRODUCT_DIR)/runtime_client_embedded_shell/assets/manifest.json',
-          '<(PRODUCT_DIR)/runtime_client_embedded_shell/assets/myextension/myextension.js',
+          '<(PRODUCT_DIR)/runtime_client_embedded_shell/assets/xwalk-extensions/myextension/myextension.js',
+          '<(PRODUCT_DIR)/runtime_client_embedded_shell/assets/xwalk-extensions/myextension/myextension.json',
           '<(PRODUCT_DIR)/runtime_client_embedded_shell/assets/sampapp-icon-helloworld.png',
           '<(PRODUCT_DIR)/runtime_client_embedded_shell/assets/xwalk.pak',
+          '<(PRODUCT_DIR)/runtime_client_embedded_shell/assets/xwalk_100_percent.pak',
           '<(PRODUCT_DIR)/runtime_client_embedded_shell/assets/www/manifest_self.json',
           '<(PRODUCT_DIR)/runtime_client_embedded_shell/assets/www/manifest_inline_script.json',
           '<(PRODUCT_DIR)/runtime_client_embedded_shell/assets/www/cross_origin.html',
@@ -353,34 +309,34 @@
               '<(PRODUCT_DIR)/runtime_client_embedded_shell/assets/icudtl.dat',
             ],
           }],
-          ['use_lzma==0', {
-            'native_lib_target': 'libxwalkcore',
-          }],
         ],
         'asset_location': '<(PRODUCT_DIR)/runtime_client_embedded_shell/assets',
       },
       'copies': [
         {
+          'destination': '<(PRODUCT_DIR)/lib',
+          'files': ['<(PRODUCT_DIR)/tests/extension/echo_extension/libecho_extension.>(android_product_extension)'],
+        },
+        {
           'destination': '<(PRODUCT_DIR)/runtime_client_embedded_shell/assets',
           'files': [
             'test/android/data/manifest.json',
-            'test/android/data/extensions-config.json',
             'test/android/data/index.html',
             'test/android/data/sampapp-icon-helloworld.png',
           ],
         },
         {
-          'destination': '<(PRODUCT_DIR)/runtime_client_embedded_shell/assets/myextension',
-          'files': ['test/android/data/myextension/myextension.js'],
+          'destination': '<(PRODUCT_DIR)/runtime_client_embedded_shell/assets/xwalk-extensions/myextension',
+          'files': [
+            'test/android/data/myextension/myextension.js',
+            'test/android/data/myextension/myextension.json',
+          ],
         },
         {
           'destination': '<(PRODUCT_DIR)/runtime_client_embedded_shell/assets/jsapi',
           'files': [
             'experimental/launch_screen/launch_screen_api.js',
-            'experimental/presentation/presentation_api.js',
-            'runtime/android/core_internal/src/org/xwalk/core/internal/extension/api/contacts/contacts_api.js',
-            'runtime/android/core_internal/src/org/xwalk/core/internal/extension/api/device_capabilities/device_capabilities_api.js',
-            'runtime/android/core_internal/src/org/xwalk/core/internal/extension/api/messaging/messaging_api.js',
+            'experimental/wifidirect/wifidirect_api.js',
           ],
         },
         {
@@ -395,19 +351,7 @@
           ],
         },
       ],
-      'conditions': [
-        ['use_lzma==1', {
-          'dependencies': [
-            'libxwalkdummy',
-          ],
-          'includes': [ 'xwalk_lzma.gypi' ],
-        },{
-          'dependencies': [
-            'libxwalkcore',
-          ],
-          'includes': [ '../build/java_apk.gypi' ],
-        }],
-      ],
+      'includes': [ '../build/java_apk.gypi' ],
     },
     {
       'target_name': 'xwalk_runtime_client_embedded_shell_apk_pak',
@@ -420,6 +364,7 @@
           'destination': '<(PRODUCT_DIR)/runtime_client_embedded_shell/assets',
           'files': [
             '<(PRODUCT_DIR)/xwalk.pak',
+            '<(PRODUCT_DIR)/xwalk_100_percent.pak',
           ],
           'conditions': [
             ['icu_use_data_file_flag==1', {
@@ -454,12 +399,11 @@
         'java_in_dir': 'test/android/runtime_client/javatests',
         'is_test_apk': 1,
         'additional_input_paths': [
-          '<(PRODUCT_DIR)/runtime_client_test/assets/contacts.html',
-          '<(PRODUCT_DIR)/runtime_client_test/assets/device_capabilities.html',
           '<(PRODUCT_DIR)/runtime_client_test/assets/displayAvailableTest.html',
           '<(PRODUCT_DIR)/runtime_client_test/assets/echo.html',
-          '<(PRODUCT_DIR)/runtime_client_test/assets/echoSync.html',
-          '<(PRODUCT_DIR)/runtime_client_test/assets/messaging_mini.html',
+          '<(PRODUCT_DIR)/runtime_client_test/assets/echo_binary_java.html',
+          '<(PRODUCT_DIR)/runtime_client_test/assets/echo_java.html',
+          '<(PRODUCT_DIR)/runtime_client_test/assets/echo_sync_java.html',
           '<(PRODUCT_DIR)/runtime_client_test/assets/native_file_system.html',
           '<(PRODUCT_DIR)/runtime_client_test/assets/screen_orientation.html',
           '<(PRODUCT_DIR)/runtime_client_test/assets/timer.html',
@@ -470,14 +414,13 @@
         {
           'destination': '<(PRODUCT_DIR)/runtime_client_test/assets',
           'files': [
-            'test/android/data/contacts.html',
-            'test/android/data/device_capabilities.html',
+            'extensions/test/data/echo.html',
             'test/android/data/displayAvailableTest.html',
-            'test/android/data/echo.html',
-            'test/android/data/echoSync.html',
+            'test/android/data/echo_binary_java.html',
+            'test/android/data/echo_java.html',
+            'test/android/data/echo_sync_java.html',
             'test/android/data/native_file_system.html',
             'test/android/data/screen_orientation.html',
-            'test/android/data/sysapps/messaging/messaging_mini.html',
             'test/android/data/timer.html',
           ],
         },
@@ -509,12 +452,11 @@
         'java_in_dir': 'test/android/runtime_client_embedded/javatests',
         'is_test_apk': 1,
         'additional_input_paths': [
-          '<(PRODUCT_DIR)/runtime_client_embedded_test/assets/contacts.html',
-          '<(PRODUCT_DIR)/runtime_client_embedded_test/assets/device_capabilities.html',
           '<(PRODUCT_DIR)/runtime_client_embedded_test/assets/displayAvailableTest.html',
           '<(PRODUCT_DIR)/runtime_client_embedded_test/assets/echo.html',
-          '<(PRODUCT_DIR)/runtime_client_embedded_test/assets/echoSync.html',
-          '<(PRODUCT_DIR)/runtime_client_embedded_test/assets/messaging_mini.html',
+          '<(PRODUCT_DIR)/runtime_client_embedded_test/assets/echo_binary_java.html',
+          '<(PRODUCT_DIR)/runtime_client_embedded_test/assets/echo_java.html',
+          '<(PRODUCT_DIR)/runtime_client_embedded_test/assets/echo_sync_java.html',
           '<(PRODUCT_DIR)/runtime_client_embedded_test/assets/native_file_system.html',
           '<(PRODUCT_DIR)/runtime_client_embedded_test/assets/screen_orientation.html',
           '<(PRODUCT_DIR)/runtime_client_embedded_test/assets/timer.html',
@@ -525,14 +467,13 @@
         {
           'destination': '<(PRODUCT_DIR)/runtime_client_embedded_test/assets',
           'files': [
-            'test/android/data/contacts.html',
-            'test/android/data/device_capabilities.html',
+            'extensions/test/data/echo.html',
             'test/android/data/displayAvailableTest.html',
-            'test/android/data/echo.html',
-            'test/android/data/echoSync.html',
+            'test/android/data/echo_binary_java.html',
+            'test/android/data/echo_java.html',
+            'test/android/data/echo_sync_java.html',
             'test/android/data/native_file_system.html',
             'test/android/data/screen_orientation.html',
-            'test/android/data/sysapps/messaging/messaging_mini.html',
             'test/android/data/timer.html',
           ],
         },
@@ -555,9 +496,11 @@
         'resource_dir': 'runtime/android/sample/res',
         'native_lib_target': 'libxwalkcore',
         'additional_input_paths': [
+          '<(PRODUCT_DIR)/sample/assets/builtinzoom.html',
           '<(PRODUCT_DIR)/sample/assets/create_window_1.html',
           '<(PRODUCT_DIR)/sample/assets/create_window_2.html',
-          '<(PRODUCT_DIR)/sample/assets/echo.html',
+          '<(PRODUCT_DIR)/sample/assets/doubletapzoom.html',
+          '<(PRODUCT_DIR)/sample/assets/echo_java.html',
           '<(PRODUCT_DIR)/sample/assets/favicon.html',
           '<(PRODUCT_DIR)/sample/assets/icon.png',
           '<(PRODUCT_DIR)/sample/assets/index.html',
@@ -565,6 +508,7 @@
           '<(PRODUCT_DIR)/sample/assets/new_window.html',
           '<(PRODUCT_DIR)/sample/assets/pause_timers.html',
           '<(PRODUCT_DIR)/sample/assets/xwalk.pak',
+          '<(PRODUCT_DIR)/sample/assets/xwalk_100_percent.pak',
         ],
         'conditions': [
           ['icu_use_data_file_flag==1', {
@@ -585,16 +529,19 @@
         {
           'destination': '<(PRODUCT_DIR)/sample/assets',
           'files': [
+            'runtime/android/sample/assets/builtinzoom.html',
             'runtime/android/sample/assets/create_window_1.html',
             'runtime/android/sample/assets/create_window_2.html',
+            'runtime/android/sample/assets/doubletapzoom.html',
             'runtime/android/sample/assets/favicon.html',
             'runtime/android/sample/assets/icon.png',
             'runtime/android/sample/assets/index.html',
             'runtime/android/sample/assets/manifest.json',
             'runtime/android/sample/assets/new_window.html',
             'runtime/android/sample/assets/pause_timers.html',
-            'test/android/data/echo.html',
+            'test/android/data/echo_java.html',
             '<(PRODUCT_DIR)/xwalk.pak',
+            '<(PRODUCT_DIR)/xwalk_100_percent.pak',
           ],
           'conditions': [
             ['icu_use_data_file_flag==1', {
@@ -617,7 +564,6 @@
       'target_name': 'xwalk_core_internal_shell_apk',
       'type': 'none',
       'dependencies': [
-        '../third_party/android_tools/android_tools.gyp:android_support_v13_javalib',
         'libxwalkcore',
         'xwalk_core_extensions_java',
         'xwalk_core_internal_java',
@@ -631,6 +577,7 @@
         'additional_input_paths': [
           '<(PRODUCT_DIR)/xwalk_internal_xwview/assets/www/index.html',
           '<(PRODUCT_DIR)/xwalk_internal_xwview/assets/xwalk.pak',
+          '<(PRODUCT_DIR)/xwalk_internal_xwview/assets/xwalk_100_percent.pak',
         ],
         'conditions': [
           ['icu_use_data_file_flag==1', {
@@ -668,6 +615,7 @@
           'destination': '<(PRODUCT_DIR)/xwalk_internal_xwview/assets',
           'files': [
             '<(PRODUCT_DIR)/xwalk.pak',
+            '<(PRODUCT_DIR)/xwalk_100_percent.pak',
           ],
           'conditions': [
             ['icu_use_data_file_flag==1', {
@@ -710,8 +658,9 @@
         'is_test_apk': 1,
         'additional_input_paths': [
           '<(PRODUCT_DIR)/xwalk_internal_xwview_test/assets/broadcast.html',
-          '<(PRODUCT_DIR)/xwalk_internal_xwview_test/assets/echo.html',
-          '<(PRODUCT_DIR)/xwalk_internal_xwview_test/assets/echoSync.html',
+          '<(PRODUCT_DIR)/xwalk_internal_xwview_test/assets/echo_binary_java.html',
+          '<(PRODUCT_DIR)/xwalk_internal_xwview_test/assets/echo_java.html',
+          '<(PRODUCT_DIR)/xwalk_internal_xwview_test/assets/echo_sync_java.html',
           '<(PRODUCT_DIR)/xwalk_internal_xwview_test/assets/framesEcho.html',
           '<(PRODUCT_DIR)/xwalk_internal_xwview_test/assets/full_screen_video_test.html',
           '<(PRODUCT_DIR)/xwalk_internal_xwview_test/assets/geolocation.html',
@@ -727,8 +676,9 @@
           'destination': '<(PRODUCT_DIR)/xwalk_internal_xwview_test/assets',
           'files': [
             'test/android/data/broadcast.html',
-            'test/android/data/echo.html',
-            'test/android/data/echoSync.html',
+            'test/android/data/echo_binary_java.html',
+            'test/android/data/echo_java.html',
+            'test/android/data/echo_sync_java.html',
             'test/android/data/framesEcho.html',
             'test/android/data/full_screen_video_test.html',
             'test/android/data/geolocation.html',
@@ -745,7 +695,7 @@
       'target_name': 'libxwalkdummy',
       'type': 'shared_library',
       'sources': [
-        'dummy/dummy.cc',
+        'runtime/android/dummy_lib/dummy_lib.cc',
       ],
     },
   ],

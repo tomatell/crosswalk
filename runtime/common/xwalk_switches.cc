@@ -29,6 +29,15 @@ const char kXWalkAllowExternalExtensionsForRemoteSources[] =
 // state, e.g. cache, localStorage etc.
 const char kXWalkDataPath[] = "data-path";
 
+#if !defined(OS_ANDROID)
+// Specifies if remote inspector can be opened when right clicking on the
+// application.
+const char kXWalkEnableInspector[] = "enable-inspector";
+
+// Specifies if XWalk should disable form data completion.
+const char kXWalkDisableSaveFormData[] = "disable-save-form-data";
+#endif
+
 #if defined(OS_ANDROID)
 // Specifies the separated folder to save user data on Android.
 const char kXWalkProfileName[] = "profile-name";
@@ -55,5 +64,9 @@ const char kPpapiFlashVersion[] = "ppapi-flash-version";
 // Specifies the user data directory, which is where the browser will look for
 // all of its state.
 const char kUserDataDir[] = "user-data-dir";
+
+// Overrides per-origin quota settings to unlimited storage for all
+// apps/origins.
+const char kUnlimitedStorage[] = "unlimited-storage";
 
 }  // namespace switches

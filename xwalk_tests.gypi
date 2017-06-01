@@ -11,6 +11,14 @@
         'sysapps/sysapps_tests.gyp:xwalk_sysapps_browsertest',
         'sysapps/sysapps_tests.gyp:xwalk_sysapps_unittest',
       ],
+      'conditions': [
+        ['OS=="win"', {
+          'dependencies': [
+            'extensions/extensions_tests.gyp:xwalk_dotnet_extensions_browsertest',
+            'extensions/extensions_tests.gyp:xwalk_dotnet_extensions_unittest',
+          ],
+        }],
+      ],
     },
     {
       'target_name': 'xwalk_unittest',
@@ -50,13 +58,6 @@
             '../skia/skia.gyp:skia',
           ],
         }],
-        ['tizen==1', {
-          'sources': [
-            'application/common/manifest_handlers/tizen_appwidget_handler_unittest.cc',
-            'application/common/manifest_handlers/tizen_metadata_handler_unittest.cc',
-            'application/common/manifest_handlers/tizen_navigation_handler_unittest.cc',
-          ],
-        }],
       ],
     },
     {
@@ -93,7 +94,6 @@
         'application/test/application_testapi_test.cc',
         'experimental/native_file_system/native_file_system_api_browsertest.cc',
         'runtime/browser/devtools/xwalk_devtools_browsertest.cc',
-        'runtime/browser/ui/taskbar_util_browsertest_win.cc',
         'runtime/browser/xwalk_download_browsertest.cc',
         'runtime/browser/xwalk_form_input_browsertest.cc',
         'runtime/browser/xwalk_runtime_browsertest.cc',

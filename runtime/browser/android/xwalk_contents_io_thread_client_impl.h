@@ -7,12 +7,11 @@
 
 #include "xwalk/runtime/browser/android/xwalk_contents_io_thread_client.h"
 
+#include <memory>
 #include <string>
 
 #include "base/android/scoped_java_ref.h"
-#include "base/basictypes.h"
 #include "base/compiler_specific.h"
-#include "base/memory/scoped_ptr.h"
 
 class GURL;
 
@@ -26,7 +25,7 @@ class URLRequest;
 
 namespace xwalk {
 
-class InterceptedRequestData;
+class XWalkWebResourceResponse;
 
 class XWalkContentsIoThreadClientImpl : public XWalkContentsIoThreadClient {
  public:
@@ -49,7 +48,7 @@ class XWalkContentsIoThreadClientImpl : public XWalkContentsIoThreadClient {
   // Implementation of XWalkContentsIoThreadClient.
   bool PendingAssociation() const override;
   CacheMode GetCacheMode() const override;
-  scoped_ptr<InterceptedRequestData> ShouldInterceptRequest(
+  std::unique_ptr<XWalkWebResourceResponse> ShouldInterceptRequest(
       const GURL& location,
       const net::URLRequest* request) override;
   bool ShouldBlockContentUrls() const override;
@@ -59,10 +58,14 @@ class XWalkContentsIoThreadClientImpl : public XWalkContentsIoThreadClient {
                    const std::string& user_agent,
                    const std::string& content_disposition,
                    const std::string& mime_type,
-                   int64 content_length) override;
+                   int64_t content_length) override;
   void NewLoginRequest(const std::string& realm,
                        const std::string& account,
                        const std::string& args) override;
+
+  void OnReceivedResponseHeaders(
+    const net::URLRequest* request,
+    const net::HttpResponseHeaders* response_headers) override;
 
  private:
   bool pending_association_;

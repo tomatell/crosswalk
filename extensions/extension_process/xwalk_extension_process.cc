@@ -9,6 +9,7 @@
 #include "base/command_line.h"
 #include "base/files/file_path.h"
 #include "base/message_loop/message_loop.h"
+#include "ipc/attachment_broker_privileged.h"
 #include "ipc/ipc_switches.h"
 #include "ipc/ipc_message_macros.h"
 #include "ipc/ipc_sync_channel.h"
@@ -19,7 +20,8 @@ namespace extensions {
 
 XWalkExtensionProcess::XWalkExtensionProcess(
     const IPC::ChannelHandle& channel_handle)
-    : shutdown_event_(false, false),
+    : shutdown_event_(base::WaitableEvent::ResetPolicy::AUTOMATIC,
+                      base::WaitableEvent::InitialState::NOT_SIGNALED),
       io_thread_("XWalkExtensionProcess_IOThread") {
   io_thread_.StartWithOptions(
       base::Thread::Options(base::MessageLoop::TYPE_IO, 0));
@@ -49,7 +51,7 @@ bool XWalkExtensionProcess::OnMessageReceived(const IPC::Message& message) {
 
 namespace {
 
-void ToValueMap(base::ListValue* lv, base::ValueMap* vm) {
+void ToValueMap(base::ListValue* lv, base::DictionaryValue::Storage* vm) {
   vm->clear();
 
   for (base::ListValue::iterator it = lv->begin(); it != lv->end(); it++) {
@@ -58,7 +60,7 @@ void ToValueMap(base::ListValue* lv, base::ValueMap* vm) {
       continue;
     for (base::DictionaryValue::Iterator dit(*dv);
         !dit.IsAtEnd(); dit.Advance())
-      (*vm)[dit.key()] = dit.value().DeepCopy();
+      (*vm)[dit.key()] = base::WrapUnique(dit.value().DeepCopy());
   }
 }
 
@@ -67,30 +69,34 @@ void ToValueMap(base::ListValue* lv, base::ValueMap* vm) {
 void XWalkExtensionProcess::OnRegisterExtensions(
     const base::FilePath& path, const base::ListValue& browser_variables_lv) {
   if (!path.empty()) {
-    scoped_ptr<base::ValueMap> browser_variables(new base::ValueMap);
+    std::unique_ptr<base::DictionaryValue::Storage> browser_variables(
+      new base::DictionaryValue::Storage);
 
     ToValueMap(&const_cast<base::ListValue&>(browser_variables_lv),
           browser_variables.get());
 
     RegisterExternalExtensionsInDirectory(&extensions_server_, path,
-                                          browser_variables.Pass());
+                                          std::move(browser_variables));
   }
   CreateRenderProcessChannel();
 }
 
 void XWalkExtensionProcess::CreateBrowserProcessChannel(
     const IPC::ChannelHandle& channel_handle) {
+#if USE_ATTACHMENT_BROKER
+  IPC::AttachmentBrokerPrivileged::CreateBrokerIfNeeded();
+#endif  // USE_ATTACHMENT_BROKER
   if (channel_handle.name.empty()) {
     std::string channel_id =
         base::CommandLine::ForCurrentProcess()->GetSwitchValueASCII(
             switches::kProcessChannelID);
     browser_process_channel_ = IPC::SyncChannel::Create(
         channel_id, IPC::Channel::MODE_CLIENT, this,
-        io_thread_.message_loop_proxy(), true, &shutdown_event_);
+        io_thread_.task_runner(), true, &shutdown_event_);
   } else {
     browser_process_channel_ = IPC::SyncChannel::Create(
         channel_handle, IPC::Channel::MODE_CLIENT, this,
-        io_thread_.message_loop_proxy(), true, &shutdown_event_);
+        io_thread_.task_runner(), true, &shutdown_event_);
   }
 }
 
@@ -101,7 +107,7 @@ void XWalkExtensionProcess::CreateRenderProcessChannel() {
 
   render_process_channel_ = IPC::SyncChannel::Create(rp_channel_handle_,
       IPC::Channel::MODE_SERVER, &extensions_server_,
-      io_thread_.message_loop_proxy(), true, &shutdown_event_);
+      io_thread_.task_runner(), true, &shutdown_event_);
 
 #if defined(OS_POSIX)
     // On POSIX, pass the server-side file descriptor. We use
@@ -124,7 +130,7 @@ bool XWalkExtensionProcess::CheckAPIAccessControl(
   PermissionCacheType::iterator iter =
       permission_cache_.find(extension_name + api_name);
   if (iter != permission_cache_.end())
-    return iter->second;
+    return iter->second != ALLOW_ONCE;
 
   RuntimePermission result = UNDEFINED_RUNTIME_PERM;
   browser_process_channel_->Send(
@@ -146,7 +152,7 @@ bool XWalkExtensionProcess::CheckAPIAccessControl(
 bool XWalkExtensionProcess::RegisterPermissions(
     const std::string& extension_name,
     const std::string& perm_table) {
-  bool result;
+  bool result = false;
   browser_process_channel_->Send(
       new XWalkExtensionProcessHostMsg_RegisterPermissions(
           extension_name, perm_table, &result));

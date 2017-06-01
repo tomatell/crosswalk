@@ -5,6 +5,7 @@
 #include "xwalk/application/browser/application_service.h"
 
 #include "base/files/file_util.h"
+#include "base/memory/ptr_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/web_contents.h"
@@ -18,8 +19,8 @@
 #include "xwalk/runtime/browser/xwalk_runner.h"
 #include "xwalk/runtime/common/xwalk_paths.h"
 
-#if defined(OS_TIZEN)
-#include "xwalk/application/browser/application_service_tizen.h"
+#if defined(OS_WIN)
+#include <shobjidl.h>
 #endif
 
 namespace xwalk {
@@ -30,14 +31,9 @@ ApplicationService::ApplicationService(XWalkBrowserContext* browser_context)
   : browser_context_(browser_context) {
 }
 
-scoped_ptr<ApplicationService> ApplicationService::Create(
+std::unique_ptr<ApplicationService> ApplicationService::Create(
     XWalkBrowserContext* browser_context) {
-#if defined(OS_TIZEN)
-  return make_scoped_ptr<ApplicationService>(
-    new ApplicationServiceTizen(browser_context));
-#else
-  return make_scoped_ptr(new ApplicationService(browser_context));
-#endif
+  return base::WrapUnique(new ApplicationService(browser_context));
 }
 
 ApplicationService::~ApplicationService() {
@@ -65,6 +61,11 @@ Application* ApplicationService::Launch(
 
   application->set_observer(this);
 
+#if defined (OS_WIN)
+  ::SetCurrentProcessExplicitAppUserModelID(
+      base::ASCIIToUTF16(application->data()->Name()).c_str());
+#endif
+
   FOR_EACH_OBSERVER(Observer, observers_,
                     DidLaunchApplication(application));
 
@@ -74,7 +75,7 @@ Application* ApplicationService::Launch(
 Application* ApplicationService::LaunchFromManifestPath(
     const base::FilePath& path, Manifest::Type manifest_type) {
   std::string error;
-  scoped_ptr<Manifest> manifest = LoadManifest(path, manifest_type, &error);
+  std::unique_ptr<Manifest> manifest = LoadManifest(path, manifest_type, &error);
   if (!manifest) {
     LOG(ERROR) << "Failed to load manifest.";
     return NULL;
@@ -82,10 +83,17 @@ Application* ApplicationService::LaunchFromManifestPath(
 
   base::FilePath app_path = path.DirName();
   LOG(ERROR) << "Loading app from " << app_path.MaybeAsASCII();
-
+  std::string app_id = GenerateIdForPath(app_path);
+#if defined (OS_WIN)
+  std::string update_id;
+  if (manifest->GetString(application_manifest_keys::kXWalkWindowsUpdateID,
+                          &update_id)) {
+    app_id = GenerateId(update_id);
+  }
+#endif
   scoped_refptr<ApplicationData> application_data = ApplicationData::Create(
-      app_path, std::string(), ApplicationData::LOCAL_DIRECTORY,
-      manifest.Pass(), &error);
+      app_path, app_id, ApplicationData::LOCAL_DIRECTORY,
+      std::move(manifest), &error);
   if (!application_data.get()) {
     LOG(ERROR) << "Error occurred while trying to load application: "
                << error;
@@ -97,7 +105,7 @@ Application* ApplicationService::LaunchFromManifestPath(
 
 Application* ApplicationService::LaunchFromPackagePath(
     const base::FilePath& path) {
-  scoped_ptr<Package> package = Package::Create(path);
+  std::unique_ptr<Package> package = Package::Create(path);
   if (!package || !package->IsValid()) {
     LOG(ERROR) << "Failed to obtain valid package from "
                << path.AsUTF8Unsafe();
@@ -150,20 +158,20 @@ Application* ApplicationService::LaunchHostedURL(const GURL& url) {
 
   const std::string& app_id = GenerateId(url_spec);
 
-  scoped_ptr<base::DictionaryValue> settings(new base::DictionaryValue());
+  std::unique_ptr<base::DictionaryValue> settings(new base::DictionaryValue());
   // FIXME: define permissions!
   settings->SetString(application_manifest_keys::kStartURLKey, url_spec);
   // FIXME: Why use URL as name?
   settings->SetString(application_manifest_keys::kNameKey, url_spec);
   settings->SetString(application_manifest_keys::kXWalkVersionKey, "0");
 
-  scoped_ptr<Manifest> manifest(
-      new Manifest(settings.Pass(), Manifest::TYPE_MANIFEST));
+  std::unique_ptr<Manifest> manifest(
+      new Manifest(std::move(settings), Manifest::TYPE_MANIFEST));
 
   std::string error;
   scoped_refptr<ApplicationData> app_data =
         ApplicationData::Create(base::FilePath(), app_id,
-        ApplicationData::EXTERNAL_URL, manifest.Pass(), &error);
+        ApplicationData::EXTERNAL_URL, std::move(manifest), &error);
   DCHECK(app_data.get());
 
   return Launch(app_data);
@@ -237,13 +245,13 @@ void ApplicationService::OnApplicationTerminated(
       // further we need to add an appropriate logic to handle it.
       content::BrowserContext::GarbageCollectStoragePartitions(
           browser_context_,
-          make_scoped_ptr(new base::hash_set<base::FilePath>()), // NOLINT
+          base::WrapUnique(new base::hash_set<base::FilePath>()), // NOLINT
           base::Bind(&base::DoNothing));
   }
 
   if (applications_.empty()) {
     base::MessageLoop::current()->PostTask(
-          FROM_HERE, base::MessageLoop::QuitClosure());
+          FROM_HERE, base::MessageLoop::QuitWhenIdleClosure());
   }
 }
 

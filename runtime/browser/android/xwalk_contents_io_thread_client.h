@@ -5,19 +5,20 @@
 #ifndef XWALK_RUNTIME_BROWSER_ANDROID_XWALK_CONTENTS_IO_THREAD_CLIENT_H_
 #define XWALK_RUNTIME_BROWSER_ANDROID_XWALK_CONTENTS_IO_THREAD_CLIENT_H_
 
+#include <memory>
 #include <string>
 
-#include "base/memory/scoped_ptr.h"
 
 class GURL;
 
 namespace net {
+class HttpResponseHeaders;
 class URLRequest;
 }
 
 namespace xwalk {
 
-class InterceptedRequestData;
+class XWalkWebResourceResponse;
 
 // This class provides a means of calling Java methods on an instance that has
 // a 1:1 relationship with a WebContents instance directly from the IO thread.
@@ -59,7 +60,7 @@ class XWalkContentsIoThreadClient {
   // |render_process_id|, |render_frame_id| pair.
   // This method can be called from any thread.
   // An empty scoped_ptr is a valid return value.
-  static scoped_ptr<XWalkContentsIoThreadClient> FromID(int render_process_id,
+  static std::unique_ptr<XWalkContentsIoThreadClient> FromID(int render_process_id,
                                                         int render_frame_id);
 
   // Called on the IO thread when a subframe is created.
@@ -68,7 +69,7 @@ class XWalkContentsIoThreadClient {
                               int child_render_frame_id);
 
   // This method is called on the IO thread only.
-  virtual scoped_ptr<InterceptedRequestData> ShouldInterceptRequest(
+  virtual std::unique_ptr<XWalkWebResourceResponse> ShouldInterceptRequest(
       const GURL& location,
       const net::URLRequest* request) = 0;
 
@@ -91,7 +92,7 @@ class XWalkContentsIoThreadClient {
                            const std::string& user_agent,
                            const std::string& content_disposition,
                            const std::string& mime_type,
-                           int64 content_length) = 0;
+                           int64_t content_length) = 0;
 
   // Called when a new login request is detected. See the documentation for
   // WebViewClient.onReceivedLoginRequest for arguments. Note that |account|
@@ -99,6 +100,10 @@ class XWalkContentsIoThreadClient {
   virtual void NewLoginRequest(const std::string& realm,
                                const std::string& account,
                                const std::string& args) = 0;
+
+  virtual void OnReceivedResponseHeaders(
+    const net::URLRequest* request,
+    const net::HttpResponseHeaders* response_headers) = 0;
 };
 
 }  // namespace xwalk

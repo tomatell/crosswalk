@@ -25,7 +25,9 @@ class XWalkInternalResources {
     // Doing org.chromium.content.R.<class>.<name> = org.xwalk.core.R.<class>.<name>
     // Use reflection to iterate over the target class is to avoid hardcode.
     private static void doResetIds(Context context) {
-        ClassLoader classLoader = context.getClassLoader();
+        // internal classes are loaded with the same classLoader of XWalkInternalResources
+        ClassLoader classLoader = XWalkInternalResources.class.getClassLoader();
+        ClassLoader appClassLoader = context.getApplicationContext().getClassLoader();
         for (String resourceClass : INTERNAL_RESOURCE_CLASSES) {
             try {
                 Class<?> internalResource = classLoader.loadClass(resourceClass);
@@ -35,7 +37,7 @@ class XWalkInternalResources {
                     String generatedInnerClassName = innerClazz.getName().replace(
                             resourceClass, GENERATED_RESOURCE_CLASS);
                     try {
-                        generatedInnerClazz = classLoader.loadClass(generatedInnerClassName);
+                        generatedInnerClazz = appClassLoader.loadClass(generatedInnerClassName);
                     } catch (ClassNotFoundException e) {
                         Log.w(TAG, generatedInnerClassName + "is not found.");
                         continue;
@@ -43,7 +45,7 @@ class XWalkInternalResources {
                     Field[] fields = innerClazz.getFields();
                     for (Field field : fields) {
                         // It's final means we are probably not used as library project.
-                        if (Modifier.isFinal(field.getModifiers())) continue;
+                        if (Modifier.isFinal(field.getModifiers())) field.setAccessible(true);
                         try {
                             int value = generatedInnerClazz.getField(field.getName()).getInt(null);
                             field.setInt(null, value);
@@ -57,6 +59,7 @@ class XWalkInternalResources {
                             Log.w(TAG, generatedInnerClazz.getName() + "." +
                                     field.getName() + " is not found.");
                         }
+                        if (Modifier.isFinal(field.getModifiers())) field.setAccessible(false);
                     }
                 }
             } catch (ClassNotFoundException e) {

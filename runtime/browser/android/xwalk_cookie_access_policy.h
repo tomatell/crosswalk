@@ -7,7 +7,6 @@
 
 #include <string>
 
-#include "base/basictypes.h"
 #include "base/lazy_instance.h"
 #include "base/synchronization/lock.h"
 #include "net/cookies/canonical_cookie.h"
@@ -57,7 +56,7 @@ class XWalkCookieAccessPolicy {
                       content::ResourceContext* context,
                       int render_process_id,
                       int render_frame_id,
-                      net::CookieOptions* options);
+                      const net::CookieOptions& options);
 
  private:
   friend struct base::DefaultLazyInstanceTraits<XWalkCookieAccessPolicy>;

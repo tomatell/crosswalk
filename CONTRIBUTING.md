@@ -18,7 +18,7 @@ license.
 
 * If it applies, add the platform your change affects in both the commit
   message and the pull request title. For example, _"[Android] Update target
-  SDK to android-21"_ or _"[Tizen] Add unit test for metadata element
+  SDK to android-21"_ or _"[Windows] Add unit test for metadata element
   handler"_.
 
 * If you know them, be sure to mention the people you would like to review your
@@ -82,3 +82,18 @@ license.
   exceptions being the amount of space used for indentation (2 instead of 4)
   and the use of `MixedCase` functions and methods instead of
   `lower_case_ones`.
+  
+## Updating the release notes
+  
+* When submitting a new feature, the author is welcome and encouraged to add a 
+  short description to the release notes in the same PR that implements the
+  feature.
+  
+* Latest before branching to beta the release notes are updated to reflect the
+  content up to that point.
+  
+* Any notable bug fixes or changes done in the beta branch are updated in the 
+  branched release notes.
+  
+* When the release is promoted to the stable channel, the release date is 
+  added to the release notes.

@@ -4,8 +4,9 @@
 
 #include "xwalk/extensions/test/xwalk_extensions_test_base.h"
 
+#include <memory>
 #include <vector>
-#include "base/memory/scoped_ptr.h"
+
 #include "base/path_service.h"
 #include "base/strings/utf_string_conversions.h"
 #include "net/base/filename_util.h"
@@ -14,7 +15,6 @@
 #include "xwalk/test/base/xwalk_test_utils.h"
 #include "content/public/test/browser_test_utils.h"
 #include "content/public/test/test_utils.h"
-#include "net/base/net_util.h"
 
 using xwalk::extensions::XWalkExtensionVector;
 using xwalk::extensions::XWalkExtensionService;
@@ -58,3 +58,16 @@ base::FilePath GetExternalExtensionTestPath(
                   .Append(test);
   return extension_dir;
 }
+
+#if defined(OS_WIN)
+base::FilePath GetDotNetExtensionTestPath(
+  const base::FilePath::CharType test[]) {
+  base::FilePath extension_dir;
+  PathService::Get(base::DIR_EXE, &extension_dir);
+  extension_dir = extension_dir
+    .Append(FILE_PATH_LITERAL("tests"))
+    .Append(FILE_PATH_LITERAL("dotnet_extension"))
+    .Append(test);
+  return extension_dir;
+}
+#endif

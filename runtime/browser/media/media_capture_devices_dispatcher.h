@@ -6,16 +6,17 @@
 #ifndef XWALK_RUNTIME_BROWSER_MEDIA_MEDIA_CAPTURE_DEVICES_DISPATCHER_H_
 #define XWALK_RUNTIME_BROWSER_MEDIA_MEDIA_CAPTURE_DEVICES_DISPATCHER_H_
 
+#include <memory>
 #include <string>
 
 #include "base/callback.h"
-#include "base/memory/scoped_ptr.h"
 #include "base/memory/singleton.h"
 #include "base/observer_list.h"
 #include "content/public/browser/media_observer.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/common/media_stream_request.h"
 
+namespace xwalk {
 // This singleton is used to receive updates about media events from the content
 // layer. Based on chrome/browser/media/media_capture_devices_dispatcher.[h|cc].
 class XWalkMediaCaptureDevicesDispatcher : public content::MediaObserver {
@@ -79,17 +80,34 @@ class XWalkMediaCaptureDevicesDispatcher : public content::MediaObserver {
       content::MediaRequestState state) override;
   void OnCreatingAudioStream(int render_process_id,
                              int render_view_id) override {}
+  void OnSetCapturingLinkSecured(int render_process_id,
+                                 int render_frame_id,
+                                 int page_request_id,
+                                 content::MediaStreamType stream_type,
+                                 bool is_secure) override {}
 
   // Only for testing.
   void SetTestAudioCaptureDevices(const content::MediaStreamDevices& devices);
   void SetTestVideoCaptureDevices(const content::MediaStreamDevices& devices);
 
  private:
-  friend struct DefaultSingletonTraits<XWalkMediaCaptureDevicesDispatcher>;
+  friend struct
+      base::DefaultSingletonTraits<XWalkMediaCaptureDevicesDispatcher>;
 
   XWalkMediaCaptureDevicesDispatcher();
   ~XWalkMediaCaptureDevicesDispatcher() override;
 
+#if !defined (OS_ANDROID)
+  static void OnPermissionRequestFinished(
+      const content::MediaResponseCallback& callback,
+      const content::MediaStreamRequest& request,
+      content::WebContents* web_contents,
+      bool success);
+  static void RequestPermissionToUser(
+      content::WebContents* web_contents,
+      const content::MediaStreamRequest& request,
+      const content::MediaResponseCallback& callback);
+#endif
   // Called by the MediaObserver() functions, executed on UI thread.
   void NotifyAudioDevicesChangedOnUIThread();
   void NotifyVideoDevicesChangedOnUIThread();
@@ -107,7 +125,9 @@ class XWalkMediaCaptureDevicesDispatcher : public content::MediaObserver {
   content::MediaStreamDevices test_video_devices_;
 
   // A list of observers for the device update notifications.
-  ObserverList<Observer> observers_;
+  base::ObserverList<Observer> observers_;
 };
+
+}  // namespace xwalk
 
 #endif  // XWALK_RUNTIME_BROWSER_MEDIA_MEDIA_CAPTURE_DEVICES_DISPATCHER_H_

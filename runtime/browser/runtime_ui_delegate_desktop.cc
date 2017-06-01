@@ -5,6 +5,7 @@
 #include "xwalk/runtime/browser/runtime_ui_delegate_desktop.h"
 
 #include "xwalk/runtime/browser/runtime.h"
+#include "xwalk/runtime/browser/xwalk_runner.h"
 
 namespace xwalk {
 
@@ -32,6 +33,10 @@ void RuntimeUIDelegateDesktop::OnStopPressed() {
   runtime_->Stop();
 }
 
+void RuntimeUIDelegateDesktop::OnApplicationExitRequested() {
+  runtime_->RequestApplicationExit();
+}
+
 void RuntimeUIDelegateDesktop::SetLoadProgress(double progress) {
   if (NativeAppWindowDesktop* window = ToNativeAppWindowDesktop(GetAppWindow()))
     window->SetLoadProgress(progress);
@@ -40,6 +45,18 @@ void RuntimeUIDelegateDesktop::SetLoadProgress(double progress) {
 void RuntimeUIDelegateDesktop::SetAddressURL(const GURL& url) {
   if (NativeAppWindowDesktop* window = ToNativeAppWindowDesktop(GetAppWindow()))
     window->SetAddressURL(url.spec());
+}
+
+bool RuntimeUIDelegateDesktop::AddDownloadItem(
+    content::DownloadItem* download_item,
+    const content::DownloadTargetCallback& callback,
+    const base::FilePath& suggested_path) {
+  if (NativeAppWindowDesktop* window =
+      ToNativeAppWindowDesktop(GetAppWindow())) {
+    window->AddDownloadItem(download_item, callback, suggested_path);
+    return true;
+  }
+  return false;
 }
 
 }  // namespace xwalk

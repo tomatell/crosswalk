@@ -113,9 +113,7 @@ public class ShouldOverrideUrlLoadingTest extends XWalkViewTestBase {
     @SmallTest
     @Feature({"XWalkView", "Navigation"})
     public void testNotCalledOnLoadData() throws Throwable {
-        loadDataSync(null,
-                CommonResources.makeHtmlPageWithSimpleLinkTo(DATA_URL), "text/html", false);
-
+        loadDataSync(CommonResources.makeHtmlPageWithSimpleLinkTo(DATA_URL), "text/html", false);
         assertEquals(0, mShouldOverrideUrlLoadingHelper.getCallCount());
     }
 
@@ -140,16 +138,16 @@ public class ShouldOverrideUrlLoadingTest extends XWalkViewTestBase {
 
         loadUrlSync(httpPathOnServer);
         loadUrlSync(url);
-        assertEquals(2, mShouldOverrideUrlLoadingHelper.getCallCount());
+        assertEquals(0, mShouldOverrideUrlLoadingHelper.getCallCount());
         String oldTitle = getTitleOnUiThread();
         goBackSync();
         assertFalse(oldTitle.equals(getTitleOnUiThread()));
-        assertEquals(3, mShouldOverrideUrlLoadingHelper.getCallCount());
+        assertEquals(0, mShouldOverrideUrlLoadingHelper.getCallCount());
 
         oldTitle = getTitleOnUiThread();
         goForwardSync();
         assertFalse(oldTitle.equals(getTitleOnUiThread()));
-        assertEquals(4, mShouldOverrideUrlLoadingHelper.getCallCount());
+        assertEquals(0, mShouldOverrideUrlLoadingHelper.getCallCount());
     }
 
     @SmallTest
@@ -157,7 +155,7 @@ public class ShouldOverrideUrlLoadingTest extends XWalkViewTestBase {
     public void testCantBlockLoads() throws Throwable {
         setShouldOverrideUrlLoadingReturnValueOnUiThread(true);
 
-        loadDataSync(null,
+        loadDataSync(
                 CommonResources.makeHtmlPageWithSimpleLinkTo(getTestPageCommonHeaders(),
                         DATA_URL), "text/html", false);
 
@@ -169,7 +167,7 @@ public class ShouldOverrideUrlLoadingTest extends XWalkViewTestBase {
     public void testCalledBeforeOnPageStarted() throws Throwable {
         OnPageStartedHelper onPageStartedHelper = mTestHelperBridge.getOnPageStartedHelper();
 
-        loadDataSync(null,
+        loadDataSync(
                 CommonResources.makeHtmlPageWithSimpleLinkTo(DATA_URL), "text/html", false);
 
         final int shouldOverrideUrlLoadingCallCount = mShouldOverrideUrlLoadingHelper.getCallCount();
@@ -187,7 +185,7 @@ public class ShouldOverrideUrlLoadingTest extends XWalkViewTestBase {
         OnReceivedErrorHelper onReceivedErrorHelper = mTestHelperBridge.getOnReceivedErrorHelper();
         final int onReceivedErrorCallCount = onReceivedErrorHelper.getCallCount();
 
-        loadDataSync(null,
+        loadDataSync(
                 CommonResources.makeHtmlPageWithSimpleLinkTo(DATA_URL), "text/html", false);
 
         final int shouldOverrideUrlLoadingCallCount = mShouldOverrideUrlLoadingHelper.getCallCount();
@@ -226,7 +224,7 @@ public class ShouldOverrideUrlLoadingTest extends XWalkViewTestBase {
                 CommonResources.makeHtmlPageWithSimpleLinkTo(anchorLinkUrl + "#anchor"));
 
         if (useLoadData) {
-            loadDataSync(null,
+            loadDataSync(
                     CommonResources.makeHtmlPageWithSimpleLinkTo("#anchor"), "text/html", false);
         } else {
             loadUrlSync(anchorLinkUrl);
@@ -248,7 +246,7 @@ public class ShouldOverrideUrlLoadingTest extends XWalkViewTestBase {
     @Feature({"XWalkView", "Navigation"})
     public void testCalledWhenLinkClicked() throws Throwable {
         // We can't go to about:blank from here because we'd get a cross-origin error.
-        loadDataSync(null,
+        loadDataSync(
                 CommonResources.makeHtmlPageWithSimpleLinkTo(DATA_URL), "text/html", false);
 
         int callCount = mShouldOverrideUrlLoadingHelper.getCallCount();
@@ -282,7 +280,7 @@ public class ShouldOverrideUrlLoadingTest extends XWalkViewTestBase {
     public void testCalledWhenNavigatingFromJavaScriptUsingAssign()
             throws Throwable {
         final String redirectTargetUrl = createRedirectTargetPage(mWebServer);
-        loadDataSync(null,
+        loadDataSync(
                 getHtmlForPageWithJsAssignLinkTo(redirectTargetUrl), "text/html", false);
 
         int callCount = mShouldOverrideUrlLoadingHelper.getCallCount();
@@ -297,7 +295,7 @@ public class ShouldOverrideUrlLoadingTest extends XWalkViewTestBase {
     public void testCalledWhenNavigatingFromJavaScriptUsingReplace()
             throws Throwable {
         final String redirectTargetUrl = createRedirectTargetPage(mWebServer);
-        loadDataSync(null,
+        loadDataSync(
                 getHtmlForPageWithJsReplaceLinkTo(redirectTargetUrl), "text/html", false);
 
         int callCount = mShouldOverrideUrlLoadingHelper.getCallCount();
@@ -309,7 +307,7 @@ public class ShouldOverrideUrlLoadingTest extends XWalkViewTestBase {
     @Feature({"XWalkView", "Navigation"})
     public void testPassesCorrectUrl() throws Throwable {
         final String redirectTargetUrl = createRedirectTargetPage(mWebServer);
-        loadDataSync(null,
+        loadDataSync(
                 CommonResources.makeHtmlPageWithSimpleLinkTo(redirectTargetUrl), "text/html", false);
 
         int callCount = mShouldOverrideUrlLoadingHelper.getCallCount();
@@ -361,7 +359,7 @@ public class ShouldOverrideUrlLoadingTest extends XWalkViewTestBase {
                 "data:text/html;base64," +
                 "PGh0bWw+PGhlYWQ+PHRpdGxlPmRhdGFVcmxUZXN0QmFzZTY0PC90aXRsZT48" +
                 "L2hlYWQ+PC9odG1sPg==";
-        loadDataSync(null,
+        loadDataSync(
                 CommonResources.makeHtmlPageWithSimpleLinkTo(dataUrl), "text/html", false);
 
         int callCount = mShouldOverrideUrlLoadingHelper.getCallCount();
@@ -378,7 +376,7 @@ public class ShouldOverrideUrlLoadingTest extends XWalkViewTestBase {
     @Feature({"XWalkView", "Navigation"})
     public void testCalledForUnsupportedSchemes() throws Throwable {
         final String unsupportedSchemeUrl = "foobar://resource/1";
-        loadDataSync(null,
+        loadDataSync(
                 CommonResources.makeHtmlPageWithSimpleLinkTo(unsupportedSchemeUrl), "text/html",
                         false);
 
@@ -417,7 +415,7 @@ public class ShouldOverrideUrlLoadingTest extends XWalkViewTestBase {
         // Since the targetURL was loaded from the test server it means all processing related
         // to dispatching a shouldOverrideUrlLoading callback had finished and checking the call
         // is stable.
-        assertEquals(shouldOverrideUrlLoadingCallCount + 1,
+        assertEquals(shouldOverrideUrlLoadingCallCount,
                 mShouldOverrideUrlLoadingHelper.getCallCount());
     }
 
@@ -458,6 +456,8 @@ public class ShouldOverrideUrlLoadingTest extends XWalkViewTestBase {
         final String pageWithIframeUrl = addPageToTestServer(mWebServer, "/iframe_intercept.html",
                 makeHtmlPageFrom("", "<iframe src=\"" + iframeRedirectUrl + "\" />"));
 
+        final int shouldOverrideUrlLoadingCallCount =
+                mShouldOverrideUrlLoadingHelper.getCallCount();
         assertEquals(0, mWebServer.getRequestCount(REDIRECT_TARGET_PATH));
         loadUrlSync(pageWithIframeUrl);
 
@@ -469,7 +469,7 @@ public class ShouldOverrideUrlLoadingTest extends XWalkViewTestBase {
             }
         });
 
-        assertEquals(1, mShouldOverrideUrlLoadingHelper.getCallCount());
+        assertEquals(shouldOverrideUrlLoadingCallCount, mShouldOverrideUrlLoadingHelper.getCallCount());
     }
 
     /**
@@ -488,20 +488,22 @@ public class ShouldOverrideUrlLoadingTest extends XWalkViewTestBase {
         int directLoadCallCount = mShouldOverrideUrlLoadingHelper.getCallCount();
         loadUrlSync(redirectUrl);
 
-        mShouldOverrideUrlLoadingHelper.waitForCallback(directLoadCallCount, 2);
+        mShouldOverrideUrlLoadingHelper.waitForCallback(directLoadCallCount, 1);
         assertEquals(redirectTarget,
                 mShouldOverrideUrlLoadingHelper.getShouldOverrideUrlLoadingUrl());
 
         int indirectLoadCallCount = mShouldOverrideUrlLoadingHelper.getCallCount();
         loadUrlSync(pageWithLinkToRedirectUrl);
+        assertEquals(indirectLoadCallCount, mShouldOverrideUrlLoadingHelper.getCallCount());
 
         clickOnElementId("link", null);
 
-        mShouldOverrideUrlLoadingHelper.waitForCallback(indirectLoadCallCount, 3);
+        mShouldOverrideUrlLoadingHelper.waitForCallback(indirectLoadCallCount, 1);
+        assertEquals(redirectUrl,
+                mShouldOverrideUrlLoadingHelper.getShouldOverrideUrlLoadingUrl());
+        mShouldOverrideUrlLoadingHelper.waitForCallback(indirectLoadCallCount + 1, 1);
         assertEquals(redirectTarget,
                 mShouldOverrideUrlLoadingHelper.getShouldOverrideUrlLoadingUrl());
-        assertEquals(redirectUrl,
-                mShouldOverrideUrlLoadingHelper.getPreviousShouldOverrideUrlLoadingUrl());
     }
 
     @SmallTest
@@ -570,7 +572,7 @@ public class ShouldOverrideUrlLoadingTest extends XWalkViewTestBase {
 
         // Do a double navigagtion, the second being an effective no-op, in quick succession (i.e.
         // without yielding the main thread inbetween).
-        loadDataSync(null,
+        loadDataSync(
                 CommonResources.makeHtmlPageWithSimpleLinkTo(DATA_URL), "text/html", false);
         loadJavaScriptUrl(jsUrl);
         assertEquals(0, mShouldOverrideUrlLoadingHelper.getCallCount());

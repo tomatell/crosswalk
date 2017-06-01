@@ -2,14 +2,16 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include <memory>
 #include <string>
 #include <vector>
 
 #include "base/files/file_path.h"
-#include "base/memory/scoped_ptr.h"
+#include "base/memory/ptr_util.h"
 #include "base/stl_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "xwalk/application/common/application_data.h"
+#include "xwalk/application/common/id_util.h"
 #include "xwalk/application/common/manifest_handler.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -41,7 +43,7 @@ class ScopedTestingManifestHandlerRegistry {
         prev_registry_, Manifest::TYPE_MANIFEST);
   }
 
-  scoped_ptr<ManifestHandlerRegistry> registry_;
+  std::unique_ptr<ManifestHandlerRegistry> registry_;
   ManifestHandlerRegistry* prev_registry_;
 };
 
@@ -219,9 +221,9 @@ TEST_F(ManifestHandlerTest, DependentHandlers) {
   manifest.SetInteger("g", 6);
   std::string error;
   scoped_refptr<ApplicationData> application = ApplicationData::Create(
-      base::FilePath(), std::string(),
+      base::FilePath(), GenerateId("test"),
       ApplicationData::LOCAL_DIRECTORY,
-      make_scoped_ptr(new Manifest(make_scoped_ptr(manifest.DeepCopy()))),
+      base::WrapUnique(new Manifest(base::WrapUnique(manifest.DeepCopy()))),
       &error);
   EXPECT_TRUE(application.get());
   // A, B, C.EZ, C.D, K
@@ -232,7 +234,7 @@ TEST_F(ManifestHandlerTest, DependentHandlers) {
 }
 
 TEST_F(ManifestHandlerTest, FailingHandlers) {
-  scoped_ptr<ScopedTestingManifestHandlerRegistry> registry(
+  std::unique_ptr<ScopedTestingManifestHandlerRegistry> registry(
       new ScopedTestingManifestHandlerRegistry(
           std::vector<ManifestHandler*>()));
   // Can't use ApplicationBuilder, because this application will fail to
@@ -246,9 +248,9 @@ TEST_F(ManifestHandlerTest, FailingHandlers) {
   // Succeeds when "a" is not recognized.
   std::string error;
   scoped_refptr<ApplicationData> application = ApplicationData::Create(
-      base::FilePath(), std::string(),
+      base::FilePath(), GenerateId("test"),
       ApplicationData::LOCAL_DIRECTORY,
-      make_scoped_ptr(new Manifest(make_scoped_ptr(manifest_a.DeepCopy()))),
+      base::WrapUnique(new Manifest(base::WrapUnique(manifest_a.DeepCopy()))),
       &error);
   EXPECT_TRUE(application.get());
 
@@ -262,16 +264,16 @@ TEST_F(ManifestHandlerTest, FailingHandlers) {
   registry.reset(new ScopedTestingManifestHandlerRegistry(handlers));
 
   application = ApplicationData::Create(
-      base::FilePath(), std::string(),
+      base::FilePath(), GenerateId("test"),
       ApplicationData::LOCAL_DIRECTORY,
-      make_scoped_ptr(new Manifest(make_scoped_ptr(manifest_a.DeepCopy()))),
+      base::WrapUnique(new Manifest(base::WrapUnique(manifest_a.DeepCopy()))),
       &error);
   EXPECT_FALSE(application.get());
   EXPECT_EQ("A", error);
 }
 
 TEST_F(ManifestHandlerTest, Validate) {
-  scoped_ptr<ScopedTestingManifestHandlerRegistry> registry(
+  std::unique_ptr<ScopedTestingManifestHandlerRegistry> registry(
       new ScopedTestingManifestHandlerRegistry(
           std::vector<ManifestHandler*>()));
   base::DictionaryValue manifest;
@@ -282,9 +284,9 @@ TEST_F(ManifestHandlerTest, Validate) {
   manifest.SetInteger("b", 2);
   std::string error;
   scoped_refptr<ApplicationData> application = ApplicationData::Create(
-      base::FilePath(), std::string(),
+      base::FilePath(), GenerateId("test"),
       ApplicationData::LOCAL_DIRECTORY,
-      make_scoped_ptr(new Manifest(make_scoped_ptr(manifest.DeepCopy()))),
+      base::WrapUnique(new Manifest(base::WrapUnique(manifest.DeepCopy()))),
       &error);
   EXPECT_TRUE(application.get());
 

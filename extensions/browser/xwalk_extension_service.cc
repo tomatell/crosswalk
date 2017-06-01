@@ -8,18 +8,18 @@
 #include <vector>
 #include "base/callback.h"
 #include "base/command_line.h"
+#include "base/memory/ptr_util.h"
 #include "base/pickle.h"
 #include "base/scoped_native_library.h"
+#include "base/synchronization/lock.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/notification_types.h"
 #include "content/public/browser/notification_service.h"
 #include "content/public/browser/render_process_host.h"
 #include "ipc/ipc_message_macros.h"
-#include "ipc/message_filter.h"
 #include "xwalk/extensions/browser/xwalk_extension_data.h"
 #include "xwalk/extensions/browser/xwalk_extension_process_host.h"
 #include "xwalk/extensions/common/xwalk_extension.h"
-#include "xwalk/extensions/common/xwalk_extension_messages.h"
 #include "xwalk/extensions/common/xwalk_extension_server.h"
 #include "xwalk/extensions/common/xwalk_extension_switches.h"
 
@@ -40,151 +40,148 @@ base::FilePath g_external_extensions_path_for_testing_;
 
 }  // namespace
 
-// This object intercepts messages destined to a XWalkExtensionServer and
-// dispatch them to its task runner. A message loop proxy of a thread is a
-// task runner. Like other filters, this filter will run in the IO-thread.
-//
-// In the case of in process extensions, we will pass the task runner of the
-// extension thread.
-class ExtensionServerMessageFilter : public IPC::MessageFilter,
-                                     public IPC::Sender {
- public:
-  ExtensionServerMessageFilter(
-      scoped_refptr<base::SequencedTaskRunner> task_runner,
-      XWalkExtensionServer* extension_thread_server,
-      XWalkExtensionServer* ui_thread_server)
+
+ExtensionServerMessageFilter::ExtensionServerMessageFilter(
+    scoped_refptr<base::SequencedTaskRunner> task_runner,
+    XWalkExtensionServer* extension_thread_server,
+    XWalkExtensionServer* ui_thread_server)
       : sender_(NULL),
         task_runner_(task_runner),
         extension_thread_server_(extension_thread_server),
         ui_thread_server_(ui_thread_server) {}
 
+ExtensionServerMessageFilter::~ExtensionServerMessageFilter() {}
+
+void ExtensionServerMessageFilter::Invalidate() {
+  base::AutoLock l(lock_);
+  sender_ = nullptr;
+  task_runner_ = nullptr;
+  extension_thread_server_ = nullptr;
+  ui_thread_server_ = nullptr;
+}
+
+// IPC::ChannelProxy::MessageFilter implementation.
+void ExtensionServerMessageFilter::OnFilterAdded(IPC::Sender* sender) {
+  sender_ = sender;
+}
+
+void ExtensionServerMessageFilter::OnFilterRemoved() {
+  sender_ = nullptr;
+}
+
+void ExtensionServerMessageFilter::OnChannelClosing() {
+  sender_ = nullptr;
+}
+
+void ExtensionServerMessageFilter::OnChannelError() {
+  sender_ = nullptr;
+}
+
   // IPC::Sender implementation.
-  bool Send(IPC::Message* msg_ptr) override {
-    scoped_ptr<IPC::Message> msg(msg_ptr);
+bool ExtensionServerMessageFilter::Send(IPC::Message* msg_ptr) {
+  std::unique_ptr<IPC::Message> msg(msg_ptr);
 
-    if (!sender_)
-      return false;
+  if (!sender_)
+    return false;
 
-    return sender_->Send(msg.release());
+  return sender_->Send(msg.release());
+}
+
+int64_t ExtensionServerMessageFilter::GetInstanceIDFromMessage(
+    const IPC::Message& message) {
+  base::PickleIterator iter;
+
+  if (message.is_sync())
+    iter = IPC::SyncMessage::GetDataIterator(&message);
+  else
+    iter = base::PickleIterator(message);
+
+  int64_t instance_id;
+  if (!iter.ReadInt64(&instance_id))
+    return -1;
+
+  return instance_id;
+ }
+
+void ExtensionServerMessageFilter::RouteMessageToServer(
+    const IPC::Message& message) {
+  int64_t id = GetInstanceIDFromMessage(message);
+  DCHECK_NE(id, -1);
+
+  XWalkExtensionServer* server;
+  base::TaskRunner* task_runner;
+  scoped_refptr<base::TaskRunner> task_runner_ref;
+
+  if (ContainsKey(extension_thread_instances_ids_, id)) {
+    server = extension_thread_server_;
+    task_runner = task_runner_.get();
+  } else {
+    server = ui_thread_server_;
+    task_runner_ref =
+        BrowserThread::GetMessageLoopProxyForThread(BrowserThread::UI);
+    task_runner = task_runner_ref.get();
   }
 
- private:
-  ~ExtensionServerMessageFilter() override {}
+  base::Closure closure = base::Bind(
+      base::IgnoreResult(&XWalkExtensionServer::OnMessageReceived),
+      server->AsWeakPtr(), message);
 
-  int64_t GetInstanceIDFromMessage(const IPC::Message& message) {
-    PickleIterator iter;
+  task_runner->PostTask(FROM_HERE, closure);
+}
 
-    if (message.is_sync())
-      iter = IPC::SyncMessage::GetDataIterator(&message);
-    else
-      iter = PickleIterator(message);
+void ExtensionServerMessageFilter::OnCreateInstance(
+    int64_t instance_id, std::string name) {
+  XWalkExtensionServer* server;
+  base::TaskRunner* task_runner;
+  scoped_refptr<base::TaskRunner> task_runner_ref;
 
-    int64_t instance_id;
-    if (!iter.ReadInt64(&instance_id))
-      return -1;
-
-    return instance_id;
+  if (extension_thread_server_->ContainsExtension(name)) {
+    extension_thread_instances_ids_.insert(instance_id);
+    server = extension_thread_server_;
+    task_runner = task_runner_.get();
+  } else {
+    server = ui_thread_server_;
+    task_runner_ref =
+        BrowserThread::GetMessageLoopProxyForThread(BrowserThread::UI);
+    task_runner = task_runner_ref.get();
   }
 
-  void RouteMessageToServer(const IPC::Message& message) {
-    int64_t id = GetInstanceIDFromMessage(message);
-    DCHECK_NE(id, -1);
+  base::Closure closure = base::Bind(
+      base::IgnoreResult(&XWalkExtensionServer::OnCreateInstance),
+      server->AsWeakPtr(), instance_id, name);
 
-    XWalkExtensionServer* server;
-    base::TaskRunner* task_runner;
-    scoped_refptr<base::TaskRunner> task_runner_ref;
+  task_runner->PostTask(FROM_HERE, closure);
+}
 
-    if (ContainsKey(extension_thread_instances_ids_, id)) {
-      server = extension_thread_server_;
-      task_runner = task_runner_.get();
-    } else {
-      server = ui_thread_server_;
-      task_runner_ref =
-          BrowserThread::GetMessageLoopProxyForThread(BrowserThread::UI);
-      task_runner = task_runner_ref.get();
-    }
+void ExtensionServerMessageFilter::OnGetExtensions(
+    std::vector<XWalkExtensionServerMsg_ExtensionRegisterParams>* reply) {
+  extension_thread_server_->OnGetExtensions(reply);
+  ui_thread_server_->OnGetExtensions(reply);
+}
 
-    base::Closure closure = base::Bind(
-        base::IgnoreResult(&XWalkExtensionServer::OnMessageReceived),
-        server->AsWeakPtr(), message);
+bool ExtensionServerMessageFilter::OnMessageReceived(const IPC::Message& message) {
+  if (IPC_MESSAGE_CLASS(message) != XWalkExtensionClientServerMsgStart)
+    return false;
 
-    task_runner->PostTask(FROM_HERE, closure);
-  }
+  base::AutoLock l(lock_);
 
-  void OnCreateInstance(int64_t instance_id, std::string name) {
-    XWalkExtensionServer* server;
-    base::TaskRunner* task_runner;
-    scoped_refptr<base::TaskRunner> task_runner_ref;
+  if (!extension_thread_server_ || !ui_thread_server_)
+    return false;
 
-    if (extension_thread_server_->ContainsExtension(name)) {
-      extension_thread_instances_ids_.insert(instance_id);
-      server = extension_thread_server_;
-      task_runner = task_runner_.get();
-    } else {
-      server = ui_thread_server_;
-      task_runner_ref =
-          BrowserThread::GetMessageLoopProxyForThread(BrowserThread::UI);
-      task_runner = task_runner_ref.get();
-    }
+  bool handled = true;
+  IPC_BEGIN_MESSAGE_MAP(ExtensionServerMessageFilter, message)
+    IPC_MESSAGE_HANDLER(XWalkExtensionServerMsg_CreateInstance,
+                        OnCreateInstance)
+    IPC_MESSAGE_HANDLER(XWalkExtensionServerMsg_GetExtensions,
+                        OnGetExtensions)
+    IPC_MESSAGE_UNHANDLED(handled = false)
+  IPC_END_MESSAGE_MAP()
 
-    base::Closure closure = base::Bind(
-        base::IgnoreResult(&XWalkExtensionServer::OnCreateInstance),
-        server->AsWeakPtr(), instance_id, name);
+  if (!handled)
+    RouteMessageToServer(message);
 
-    task_runner->PostTask(FROM_HERE, closure);
-  }
-
-  void OnGetExtensions(
-      std::vector<XWalkExtensionServerMsg_ExtensionRegisterParams>* reply) {
-    extension_thread_server_->OnGetExtensions(reply);
-    ui_thread_server_->OnGetExtensions(reply);
-  }
-
-  // IPC::ChannelProxy::MessageFilter implementation.
-  void OnFilterAdded(IPC::Sender* sender) override {
-    sender_ = sender;
-  }
-
-  void OnFilterRemoved() override {
-    sender_ = NULL;
-  }
-
-  void OnChannelClosing() override {
-    sender_ = NULL;
-  }
-
-  void OnChannelError() override {
-    sender_ = NULL;
-  }
-
-  bool OnMessageReceived(const IPC::Message& message) override {
-    if (IPC_MESSAGE_CLASS(message) != XWalkExtensionClientServerMsgStart)
-      return false;
-
-    if (!extension_thread_server_ || !ui_thread_server_)
-      return false;
-
-    bool handled = true;
-    IPC_BEGIN_MESSAGE_MAP(ExtensionServerMessageFilter, message)
-      IPC_MESSAGE_HANDLER(XWalkExtensionServerMsg_CreateInstance,
-                          OnCreateInstance)
-      IPC_MESSAGE_HANDLER(XWalkExtensionServerMsg_GetExtensions,
-                          OnGetExtensions)
-      IPC_MESSAGE_UNHANDLED(handled = false)
-    IPC_END_MESSAGE_MAP()
-
-    if (!handled)
-      RouteMessageToServer(message);
-
-    return true;
-  }
-
-  IPC::Sender* sender_;
-  scoped_refptr<base::SequencedTaskRunner> task_runner_;
-  XWalkExtensionServer* extension_thread_server_;
-  XWalkExtensionServer* ui_thread_server_;
-  std::set<int64_t> extension_thread_instances_ids_;
-};
+  return true;
+}
 
 bool XWalkExtensionService::Delegate::RegisterPermissions(
     int render_process_id,
@@ -222,7 +219,7 @@ void XWalkExtensionService::OnRenderProcessHostCreatedInternal(
     content::RenderProcessHost* host,
     XWalkExtensionVector* ui_thread_extensions,
     XWalkExtensionVector* extension_thread_extensions,
-    scoped_ptr<base::ValueMap> runtime_variables) {
+    std::unique_ptr<base::DictionaryValue::Storage> runtime_variables) {
   XWalkExtensionData* data = new XWalkExtensionData;
   data->set_render_process_host(host);
 
@@ -231,11 +228,12 @@ void XWalkExtensionService::OnRenderProcessHostCreatedInternal(
 
   base::CommandLine* cmd_line = base::CommandLine::ForCurrentProcess();
   if (!cmd_line->HasSwitch(switches::kXWalkDisableExtensionProcess)) {
-    CreateExtensionProcessHost(host, data, runtime_variables.Pass());
+    CreateExtensionProcessHost(host, data, std::move(runtime_variables));
   } else if (!external_extensions_path_.empty()) {
-    RegisterExternalExtensionsInDirectory(
+    BrowserThread::PostTask(BrowserThread::FILE, FROM_HERE, base::Bind(
+        base::IgnoreResult(&RegisterExternalExtensionsInDirectory),
         data->in_process_ui_thread_server(),
-        external_extensions_path_, runtime_variables.Pass());
+        external_extensions_path_, base::Passed(std::move(runtime_variables))));
   }
 
   extension_data_map_[host->GetID()] = data;
@@ -245,19 +243,19 @@ void XWalkExtensionService::OnRenderProcessWillLaunch(
     content::RenderProcessHost* host,
     XWalkExtensionVector* ui_thread_extensions,
     XWalkExtensionVector* extension_thread_extensions,
-    scoped_ptr<base::ValueMap> runtime_variables) {
+    std::unique_ptr<base::DictionaryValue::Storage> runtime_variables) {
   CHECK(host);
 
   if (!g_external_extensions_path_for_testing_.empty()) {
-    (*runtime_variables)["runtime_name"] =
-        new base::StringValue("xwalk");
+    (*runtime_variables)["runtime_name"] = base::WrapUnique(
+        new base::StringValue("xwalk"));
     OnRenderProcessHostCreatedInternal(host, ui_thread_extensions,
-        extension_thread_extensions, runtime_variables.Pass());
+        extension_thread_extensions, std::move(runtime_variables));
     return;
   }
 
   OnRenderProcessHostCreatedInternal(host, ui_thread_extensions,
-      extension_thread_extensions, runtime_variables.Pass());
+      extension_thread_extensions, std::move(runtime_variables));
 }
 
 // static
@@ -316,7 +314,7 @@ void RegisterExtensionsIntoServer(XWalkExtensionVector* extensions,
   XWalkExtensionVector::iterator it = extensions->begin();
   for (; it != extensions->end(); ++it) {
     std::string name = (*it)->name();
-    if (!server->RegisterExtension(scoped_ptr<XWalkExtension>(*it))) {
+    if (!server->RegisterExtension(std::unique_ptr<XWalkExtension>(*it))) {
       LOG(WARNING) << "Couldn't register extension with name '"
                    << name << "'\n";
     }
@@ -331,9 +329,9 @@ void XWalkExtensionService::CreateInProcessExtensionServers(
     content::RenderProcessHost* host, XWalkExtensionData* data,
     XWalkExtensionVector* ui_thread_extensions,
     XWalkExtensionVector* extension_thread_extensions) {
-  scoped_ptr<XWalkExtensionServer> extension_thread_server(
+  std::unique_ptr<XWalkExtensionServer> extension_thread_server(
       new XWalkExtensionServer);
-  scoped_ptr<XWalkExtensionServer> ui_thread_server(
+  std::unique_ptr<XWalkExtensionServer> ui_thread_server(
       new XWalkExtensionServer);
 
   IPC::ChannelProxy* channel = host->GetChannel();
@@ -358,24 +356,26 @@ void XWalkExtensionService::CreateInProcessExtensionServers(
   }
 
   ExtensionServerMessageFilter* message_filter =
-      new ExtensionServerMessageFilter(extension_thread_.message_loop_proxy(),
+      new ExtensionServerMessageFilter(extension_thread_.task_runner(),
                                        extension_thread_server.get(),
                                        ui_thread_server.get());
 
   channel->AddFilter(message_filter);
 
-  data->set_in_process_extension_thread_server(extension_thread_server.Pass());
-  data->set_in_process_ui_thread_server(ui_thread_server.Pass());
+  data->set_in_process_extension_thread_server(
+             std::move(extension_thread_server));
+  data->set_in_process_ui_thread_server(std::move(ui_thread_server));
+  data->set_in_process_message_filter(message_filter);
 
   data->set_extension_thread(&extension_thread_);
 }
 
 void XWalkExtensionService::CreateExtensionProcessHost(
     content::RenderProcessHost* host, XWalkExtensionData* data,
-    scoped_ptr<base::ValueMap> runtime_variables) {
-  data->set_extension_process_host(make_scoped_ptr(
+    std::unique_ptr<base::DictionaryValue::Storage> runtime_variables) {
+  data->set_extension_process_host(base::WrapUnique(
       new XWalkExtensionProcessHost(host, external_extensions_path_, this,
-                                    runtime_variables.Pass())));
+                                    std::move(runtime_variables))));
 }
 
 void XWalkExtensionService::OnExtensionProcessDied(

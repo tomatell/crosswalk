@@ -32,23 +32,16 @@ IPC_ENUM_TRAITS(xwalk::application::ApplicationSecurityPolicy::SecurityMode)
 // RenderView messages
 // These are messages sent from the browser to the renderer process.
 
-IPC_MESSAGE_CONTROL3(ViewMsg_SetAccessWhiteList,  // NOLINT
+IPC_MESSAGE_CONTROL4(ViewMsg_SetAccessWhiteList,  // NOLINT
                      GURL /* source */,
                      GURL /* dest */,
+                     std::string /*dest_host*/,
                      bool /* allow_subdomains */)
 
 IPC_MESSAGE_CONTROL2(ViewMsg_EnableSecurityMode,    // NOLINT
                      GURL /* application url */,
                      xwalk::application::ApplicationSecurityPolicy::SecurityMode
                      /* security mode */)
-
-IPC_MESSAGE_CONTROL1(ViewMsg_SuspendJSEngine,  // NOLINT
-                     bool /* is suspend */)
-
-#if defined(OS_TIZEN)
-IPC_MESSAGE_CONTROL1(ViewMsg_UserAgentStringChanged,  // NOLINT
-                     std::string /*new user agent string*/)
-#endif
 
 IPC_MESSAGE_ROUTED1(ViewMsg_HWKeyPressed, int /*keycode*/)  // NOLINT
 

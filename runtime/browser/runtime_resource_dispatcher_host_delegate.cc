@@ -5,7 +5,9 @@
 
 #include "xwalk/runtime/browser/runtime_resource_dispatcher_host_delegate.h"
 
-#include "base/memory/scoped_ptr.h"
+#include <memory>
+
+#include "base/memory/ptr_util.h"
 #include "base/memory/scoped_vector.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/resource_controller.h"
@@ -26,14 +28,14 @@
 namespace xwalk {
 
 // static
-scoped_ptr<RuntimeResourceDispatcherHostDelegate>
+std::unique_ptr<RuntimeResourceDispatcherHostDelegate>
 RuntimeResourceDispatcherHostDelegate::Create() {
 #if defined(OS_ANDROID)
-  return make_scoped_ptr(
+  return base::WrapUnique(
       static_cast<RuntimeResourceDispatcherHostDelegate*>(
             new RuntimeResourceDispatcherHostDelegateAndroid()));
 #else
-  return make_scoped_ptr(new RuntimeResourceDispatcherHostDelegate());
+  return base::WrapUnique(new RuntimeResourceDispatcherHostDelegate());
 #endif
 }
 
@@ -57,7 +59,6 @@ void RuntimeResourceDispatcherHostDelegate::DownloadStarting(
     content::ResourceContext* resource_context,
     int child_id,
     int route_id,
-    int request_id,
     bool is_content_initiated,
     bool must_download,
     ScopedVector<content::ResourceThrottle>* throttles) {
@@ -66,10 +67,11 @@ void RuntimeResourceDispatcherHostDelegate::DownloadStarting(
 bool RuntimeResourceDispatcherHostDelegate::HandleExternalProtocol(
     const GURL& url,
     int child_id,
-    int route_id,
+    const content::ResourceRequestInfo::WebContentsGetter& web_contents_getter,
     bool is_main_frame,
     ui::PageTransition page_transition,
-    bool has_user_gesture) {
+    bool has_user_gesture,
+    content::ResourceContext* resource_context) {
   platform_util::OpenExternal(url);
   return true;
 }

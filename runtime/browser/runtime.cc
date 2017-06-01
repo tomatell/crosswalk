@@ -10,32 +10,37 @@
 #include "base/command_line.h"
 #include "base/message_loop/message_loop.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/threading/non_thread_safe.h"
+#include "components/app_modal/javascript_dialog_manager.h"
+#include "components/content_settings/core/common/content_settings.h"
+#include "components/content_settings/core/common/content_settings_types.h"
 #include "content/public/browser/navigation_entry.h"
 #include "content/public/browser/notification_details.h"
 #include "content/public/browser/notification_service.h"
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/render_process_host.h"
 #include "content/public/browser/render_view_host.h"
+#include "content/public/browser/render_widget_host.h"
 #include "content/public/browser/web_contents.h"
 #include "grit/xwalk_resources.h"
+#include "net/base/url_util.h"
 #include "ui/base/resource/resource_bundle.h"
 #include "ui/gfx/image/image_skia.h"
 #include "ui/gfx/native_widget_types.h"
+#include "xwalk/application/browser/application.h"
+#include "xwalk/application/browser/application_service.h"
+#include "xwalk/application/browser/application_system.h"
 #include "xwalk/runtime/browser/image_util.h"
 #include "xwalk/runtime/browser/media/media_capture_devices_dispatcher.h"
 #include "xwalk/runtime/browser/runtime_file_select_helper.h"
 #include "xwalk/runtime/browser/ui/color_chooser.h"
+#include "xwalk/runtime/browser/xwalk_autofill_manager.h"
 #include "xwalk/runtime/browser/xwalk_browser_context.h"
+#include "xwalk/runtime/browser/xwalk_content_browser_client.h"
+#include "xwalk/runtime/browser/xwalk_content_settings.h"
 #include "xwalk/runtime/browser/xwalk_runner.h"
 #include "xwalk/runtime/common/xwalk_notification_types.h"
 #include "xwalk/runtime/common/xwalk_switches.h"
-
-#if defined(OS_TIZEN)
-#include "content/public/browser/site_instance.h"
-#include "xwalk/application/browser/application.h"
-#include "xwalk/application/browser/application_system.h"
-#include "xwalk/application/browser/application_service.h"
-#endif
 
 #if !defined(OS_ANDROID)
 #include "xwalk/runtime/browser/runtime_ui_delegate.h"
@@ -48,7 +53,7 @@ namespace xwalk {
 
 // static
 Runtime* Runtime::Create(XWalkBrowserContext* browser_context,
-                         content::SiteInstance* site) {
+                         scoped_refptr<content::SiteInstance> site) {
   WebContents::CreateParams params(browser_context, site);
   params.routing_id = MSG_ROUTING_NONE;
   WebContents* web_contents = WebContents::Create(params);
@@ -64,9 +69,11 @@ Runtime::Runtime(content::WebContents* web_contents)
       observer_(nullptr),
       weak_ptr_factory_(this) {
   web_contents_->SetDelegate(this);
-  registrar_.Add(this,
-                 content::NOTIFICATION_WEB_CONTENTS_TITLE_UPDATED,
-                 content::Source<content::WebContents>(web_contents_.get()));
+#if !defined(OS_ANDROID)
+  if (XWalkBrowserContext::GetDefault()->save_form_data())
+    xwalk_autofill_manager_.reset(
+        new XWalkAutofillManager(web_contents_.get()));
+#endif
 }
 
 Runtime::~Runtime() {
@@ -170,6 +177,12 @@ bool Runtime::IsFullscreenForTabOrPending(
   return (fullscreen_options_ & FULLSCREEN_FOR_TAB) != 0;
 }
 
+blink::WebDisplayMode Runtime::GetDisplayMode(
+    const content::WebContents* web_contents) const {
+  return (ui_delegate_) ? ui_delegate_->GetDisplayMode()
+                        : blink::WebDisplayModeUndefined;
+}
+
 void Runtime::RequestToLockMouse(content::WebContents* web_contents,
                                  bool user_gesture,
                                  bool last_unlocked_by_target) {
@@ -182,6 +195,11 @@ void Runtime::CloseContents(content::WebContents* source) {
 
   if (observer_)
     observer_->OnRuntimeClosed(this);
+}
+
+void Runtime::RequestApplicationExit() {
+  if (observer_)
+    observer_->OnApplicationExitRequested(this);
 }
 
 bool Runtime::CanOverscrollContent() const {
@@ -208,7 +226,7 @@ void Runtime::HandleKeyboardEvent(
 void Runtime::WebContentsCreated(
     content::WebContents* source_contents,
     int opener_render_frame_id,
-    const base::string16& frame_name,
+    const std::string& frame_name,
     const GURL& target_url,
     content::WebContents* new_contents) {
   if (observer_)
@@ -225,15 +243,15 @@ void Runtime::DidNavigateMainFramePostCommit(
 
 content::JavaScriptDialogManager* Runtime::GetJavaScriptDialogManager(
     content::WebContents* web_contents) {
-  return NULL;
+#if defined(USE_AURA)
+  return app_modal::JavaScriptDialogManager::GetInstance();
+#else
+  return nullptr;
+#endif
 }
 
 void Runtime::ActivateContents(content::WebContents* contents) {
-  contents->GetRenderViewHost()->Focus();
-}
-
-void Runtime::DeactivateContents(content::WebContents* contents) {
-  contents->GetRenderViewHost()->Blur();
+  contents->GetRenderViewHost()->GetWidget()->Focus();
 }
 
 content::ColorChooser* Runtime::OpenColorChooser(
@@ -250,13 +268,12 @@ content::ColorChooser* Runtime::OpenColorChooser(
 }
 
 void Runtime::RunFileChooser(
-    content::WebContents* web_contents,
+    content::RenderFrameHost* render_frame_host,
     const content::FileChooserParams& params) {
-#if defined(USE_AURA) && defined(OS_LINUX) && \
-    !defined(USE_WEBUI_FILE_PICKER) && !defined(USE_GTK_UI)
+#if defined(USE_AURA) && defined(OS_LINUX) && !defined(USE_GTK_UI)
   NOTIMPLEMENTED();
 #else
-  RuntimeFileSelectHelper::RunFileChooser(web_contents, params);
+  RuntimeFileSelectHelper::RunFileChooser(render_frame_host, params);
 #endif
 }
 
@@ -294,6 +311,21 @@ void Runtime::DidUpdateFaviconURL(const std::vector<FaviconURL>& candidates) {
           &Runtime::DidDownloadFavicon, weak_ptr_factory_.GetWeakPtr()));
 }
 
+void Runtime::TitleWasSet(content::NavigationEntry* entry, bool explicit_set) {
+  if (ui_delegate_)
+    ui_delegate_->UpdateTitle(entry->GetTitle());
+}
+
+void Runtime::DidNavigateAnyFrame(
+    content::RenderFrameHost* render_frame_host,
+    const content::LoadCommittedDetails& details,
+    const content::FrameNavigateParams& params) {
+  DCHECK(thread_checker_.CalledOnValidThread());
+
+  XWalkBrowserContext::FromWebContents(web_contents())
+      ->AddVisitedURLs(params.redirects);
+}
+
 void Runtime::DidDownloadFavicon(int id,
                                  int http_status_code,
                                  const GURL& image_url,
@@ -306,17 +338,15 @@ void Runtime::DidDownloadFavicon(int id,
     ui_delegate_->UpdateIcon(app_icon_);
 }
 
+bool Runtime::HandleContextMenu(const content::ContextMenuParams& params) {
+  if (ui_delegate_)
+    return ui_delegate_->HandleContextMenu(params);
+  return false;
+}
+
 void Runtime::Observe(int type,
                       const content::NotificationSource& source,
                       const content::NotificationDetails& details) {
-  if (type == content::NOTIFICATION_WEB_CONTENTS_TITLE_UPDATED) {
-    std::pair<content::NavigationEntry*, bool>* title =
-        content::Details<std::pair<content::NavigationEntry*, bool> >(
-            details).ptr();
-
-    if (title->first && ui_delegate_)
-      ui_delegate_->UpdateTitle(title->first->GetTitle());
-  }
 }
 
 void Runtime::RequestMediaAccessPermission(
@@ -331,15 +361,43 @@ bool Runtime::CheckMediaAccessPermission(
     content::WebContents* web_contents,
     const GURL& security_origin,
     content::MediaStreamType type) {
-  // TODO(xiang): Pepper flash plugin will trigger this check a lot, return
-  // false at the moment.
+  // Requested by Pepper Flash plugin and mediaDevices.enumerateDevices().
+#if defined (OS_ANDROID)
   return false;
+#else
+  // This function may be called for a media request coming from
+  // from WebRTC/mediaDevices. These requests can't be made from HTTP.
+  if (security_origin.SchemeIs(url::kHttpScheme) &&
+      !net::IsLocalhost(security_origin.host()))
+    return false;
+
+  ContentSettingsType content_settings_type =
+      type == content::MEDIA_DEVICE_AUDIO_CAPTURE
+          ? CONTENT_SETTINGS_TYPE_MEDIASTREAM_MIC
+          : CONTENT_SETTINGS_TYPE_MEDIASTREAM_CAMERA;
+  ContentSetting content_setting =
+      XWalkContentSettings::GetInstance()->GetPermission(
+          content_settings_type,
+          security_origin,
+          web_contents_->GetLastCommittedURL().GetOrigin());
+  return content_setting == CONTENT_SETTING_ALLOW;
+#endif
 }
 
 void Runtime::LoadProgressChanged(content::WebContents* source,
                                   double progress) {
   if (ui_delegate_)
     ui_delegate_->SetLoadProgress(progress);
+}
+
+bool Runtime::AddDownloadItem(content::DownloadItem* download_item,
+    const content::DownloadTargetCallback& callback,
+    const base::FilePath& suggested_path) {
+  if (ui_delegate_) {
+    return ui_delegate_->AddDownloadItem(download_item, callback,
+        suggested_path);
+  }
+  return false;
 }
 
 }  // namespace xwalk

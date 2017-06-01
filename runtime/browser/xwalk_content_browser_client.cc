@@ -14,6 +14,9 @@
 #include "content/public/browser/browser_main_parts.h"
 #include "content/public/browser/browser_ppapi_host.h"
 #include "content/public/browser/child_process_data.h"
+#include "content/public/browser/client_certificate_delegate.h"
+#include "content/public/browser/geolocation_delegate.h"
+#include "content/public/browser/presentation_service_delegate.h"
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/render_process_host.h"
 #include "content/public/browser/resource_context.h"
@@ -23,12 +26,12 @@
 #include "content/public/common/content_descriptors.h"
 #include "content/public/common/main_function_params.h"
 #include "gin/v8_initializer.h"
+#include "gin/public/isolate_holder.h"
 #include "net/ssl/ssl_info.h"
 #include "net/url_request/url_request_context_getter.h"
 #include "ppapi/host/ppapi_host.h"
 #include "xwalk/extensions/common/xwalk_extension_switches.h"
 #include "xwalk/application/common/constants.h"
-#include "xwalk/runtime/browser/devtools/xwalk_devtools_delegate.h"
 #include "xwalk/runtime/browser/geolocation/xwalk_access_token_store.h"
 #include "xwalk/runtime/browser/media/media_capture_devices_dispatcher.h"
 #include "xwalk/runtime/browser/renderer_host/pepper/xwalk_browser_pepper_host_factory.h"
@@ -54,7 +57,14 @@
 #if defined(OS_ANDROID)
 #include "base/android/locale_utils.h"
 #include "base/android/path_utils.h"
+#include "base/android/jni_android.h"
+#include "base/android/jni_array.h"
+#include "base/android/jni_string.h"
 #include "base/base_paths_android.h"
+#include "components/cdm/browser/cdm_message_filter_android.h"
+#include "components/navigation_interception/intercept_navigation_delegate.h"
+#include "content/public/browser/navigation_handle.h"
+#include "content/public/browser/navigation_throttle.h"
 #include "xwalk/runtime/browser/android/xwalk_cookie_access_policy.h"
 #include "xwalk/runtime/browser/android/xwalk_contents_client_bridge.h"
 #include "xwalk/runtime/browser/android/xwalk_web_contents_view_delegate.h"
@@ -70,11 +80,10 @@
 #include "xwalk/runtime/browser/xwalk_browser_main_parts_mac.h"
 #endif
 
-#if defined(OS_TIZEN)
-#include "xwalk/application/common/application_manifest_constants.h"
-#include "xwalk/runtime/browser/geolocation/tizen/location_provider_tizen.h"
-#include "xwalk/runtime/browser/tizen/xwalk_web_contents_view_delegate.h"
-#include "xwalk/runtime/browser/xwalk_browser_main_parts_tizen.h"
+#if defined(OS_ANDROID)
+#include "xwalk/runtime/browser/xwalk_presentation_service_delegate_android.h"
+#elif defined(OS_WIN)
+#include "xwalk/runtime/browser/xwalk_presentation_service_delegate_win.h"
 #endif
 
 namespace xwalk {
@@ -84,6 +93,22 @@ namespace {
 // The application-wide singleton of ContentBrowserClient impl.
 XWalkContentBrowserClient* g_browser_client = nullptr;
 
+// A provider of services for Geolocation.
+class XWalkGeolocationDelegate : public content::GeolocationDelegate {
+ public:
+  explicit XWalkGeolocationDelegate(net::URLRequestContextGetter* request_context)
+      : request_context_(request_context) {}
+
+  content::AccessTokenStore* CreateAccessTokenStore() final {
+    return new XWalkAccessTokenStore(request_context_);
+  }
+
+ private:
+  net::URLRequestContextGetter* request_context_;
+
+  DISALLOW_COPY_AND_ASSIGN(XWalkGeolocationDelegate);
+};
+
 }  // namespace
 
 // static
@@ -91,16 +116,13 @@ XWalkContentBrowserClient* XWalkContentBrowserClient::Get() {
   return g_browser_client;
 }
 
-
 XWalkContentBrowserClient::XWalkContentBrowserClient(XWalkRunner* xwalk_runner)
     : xwalk_runner_(xwalk_runner),
-      url_request_context_getter_(nullptr),
 #if defined(OS_POSIX) && !defined(OS_MACOSX)
       v8_natives_fd_(-1),
       v8_snapshot_fd_(-1),
 #endif  // OS_POSIX && !OS_MACOSX
-      main_parts_(nullptr),
-      browser_context_(xwalk_runner->browser_context()) {
+      main_parts_(nullptr) {
   DCHECK(!g_browser_client);
   g_browser_client = this;
 }
@@ -116,34 +138,11 @@ content::BrowserMainParts* XWalkContentBrowserClient::CreateBrowserMainParts(
   main_parts_ = new XWalkBrowserMainPartsMac(parameters);
 #elif defined(OS_ANDROID)
   main_parts_ = new XWalkBrowserMainPartsAndroid(parameters);
-#elif defined(OS_TIZEN)
-  main_parts_ = new XWalkBrowserMainPartsTizen(parameters);
 #else
   main_parts_ = new XWalkBrowserMainParts(parameters);
 #endif
 
   return main_parts_;
-}
-
-net::URLRequestContextGetter* XWalkContentBrowserClient::CreateRequestContext(
-    content::BrowserContext* browser_context,
-    content::ProtocolHandlerMap* protocol_handlers,
-    content::URLRequestInterceptorScopedVector request_interceptors) {
-  return static_cast<XWalkBrowserContext*>(browser_context)->
-      CreateRequestContext(protocol_handlers, request_interceptors.Pass());
-}
-
-net::URLRequestContextGetter*
-XWalkContentBrowserClient::CreateRequestContextForStoragePartition(
-    content::BrowserContext* browser_context,
-    const base::FilePath& partition_path,
-    bool in_memory,
-    content::ProtocolHandlerMap* protocol_handlers,
-    content::URLRequestInterceptorScopedVector request_interceptors) {
-  return static_cast<XWalkBrowserContext*>(browser_context)->
-      CreateRequestContextForStoragePartition(
-          partition_path, in_memory, protocol_handlers,
-          request_interceptors.Pass());
 }
 
 // This allow us to append extra command line switches to the child
@@ -169,8 +168,10 @@ XWalkContentBrowserClient::CreateQuotaPermissionContext() {
   return new RuntimeQuotaPermissionContext();
 }
 
-content::AccessTokenStore* XWalkContentBrowserClient::CreateAccessTokenStore() {
-  return new XWalkAccessTokenStore(url_request_context_getter_);
+content::GeolocationDelegate*
+XWalkContentBrowserClient::CreateGeolocationDelegate() {
+  return new XWalkGeolocationDelegate(
+      xwalk_runner_->browser_context()->url_request_getter());
 }
 
 content::WebContentsViewDelegate*
@@ -178,9 +179,6 @@ XWalkContentBrowserClient::GetWebContentsViewDelegate(
     content::WebContents* web_contents) {
 #if defined(OS_ANDROID)
   return new XWalkWebContentsViewDelegate(web_contents);
-#elif defined(OS_TIZEN)
-  return new XWalkWebContentsViewDelegate(
-      web_contents, xwalk_runner_->app_system()->application_service());
 #else
   return nullptr;
 #endif
@@ -202,6 +200,10 @@ void XWalkContentBrowserClient::RenderProcessWillLaunch(
 #endif
   xwalk_runner_->OnRenderProcessWillLaunch(host);
   host->AddFilter(new XWalkRenderMessageFilter);
+#if defined(OS_ANDROID)
+  host->AddFilter(new cdm::CdmMessageFilterAndroid());
+  host->AddFilter(new XWalkRenderMessageFilter(host->GetID()));
+#endif
 }
 
 content::MediaObserver* XWalkContentBrowserClient::GetMediaObserver() {
@@ -235,7 +237,7 @@ bool XWalkContentBrowserClient::AllowSetCookie(
     content::ResourceContext* context,
     int render_process_id,
     int render_frame_id,
-    net::CookieOptions* options) {
+    const net::CookieOptions& options) {
 #if defined(OS_ANDROID)
   return XWalkCookieAccessPolicy::GetInstance()->AllowSetCookie(
       url,
@@ -250,9 +252,25 @@ bool XWalkContentBrowserClient::AllowSetCookie(
 #endif
 }
 
+// Selects a SSL client certificate and returns it to the |delegate|. If no
+// certificate was selected NULL is returned to the |delegate|.
+void XWalkContentBrowserClient::SelectClientCertificate(
+    content::WebContents* web_contents,
+    net::SSLCertRequestInfo* cert_request_info,
+    std::unique_ptr<content::ClientCertificateDelegate> delegate) {
+#if defined(OS_ANDROID)
+  XWalkContentsClientBridgeBase* client =
+      XWalkContentsClientBridgeBase::FromWebContents(web_contents);
+  if (client) {
+    client->SelectClientCertificate(cert_request_info, std::move(delegate));
+  } else {
+    delegate->ContinueWithCertificate(nullptr);
+  }
+#endif
+}
+
 void XWalkContentBrowserClient::AllowCertificateError(
-    int render_process_id,
-    int render_frame_id,
+    content::WebContents* web_contents,
     int cert_error,
     const net::SSLInfo& ssl_info,
     const GURL& request_url,
@@ -266,8 +284,7 @@ void XWalkContentBrowserClient::AllowCertificateError(
   // TODO(yongsheng): applies it for other platforms?
 #if defined(OS_ANDROID)
   XWalkContentsClientBridgeBase* client =
-      XWalkContentsClientBridgeBase::FromRenderFrameID(render_process_id,
-          render_frame_id);
+      XWalkContentsClientBridgeBase::FromWebContents(web_contents);
   bool cancel_request = true;
   if (client)
     client->AllowCertificateError(cert_error,
@@ -278,15 +295,7 @@ void XWalkContentBrowserClient::AllowCertificateError(
   if (cancel_request)
     *result = content::CERTIFICATE_REQUEST_RESULT_TYPE_DENY;
 #else
-  content::RenderFrameHost* render_frame_host =
-      content::RenderFrameHost::FromID(render_process_id, render_frame_id);
-  content::WebContents* web_contents =
-      content::WebContents::FromRenderFrameHost(render_frame_host);
-  if (!web_contents) {
-    NOTREACHED();
-    return;
-  }
-
+  DCHECK(web_contents);
   // The interstitial page shown is responsible for destroying
   // this instance of SSLErrorPage
   (new SSLErrorPage(web_contents, cert_error,
@@ -303,7 +312,7 @@ void XWalkContentBrowserClient::DidCreatePpapiPlugin(
     content::BrowserPpapiHost* browser_host) {
 #if defined(ENABLE_PLUGINS)
   browser_host->GetPpapiHost()->AddHostFactoryFilter(
-      scoped_ptr<ppapi::host::HostFactory>(
+      std::unique_ptr<ppapi::host::HostFactory>(
           new XWalkBrowserPepperHostFactory(browser_host)));
 #endif
 }
@@ -327,10 +336,10 @@ content::BrowserPpapiHost*
   return nullptr;
 }
 
-#if defined(OS_ANDROID) || defined(OS_TIZEN)  || defined(OS_LINUX)
+#if defined(OS_ANDROID) || defined(OS_LINUX)
 void XWalkContentBrowserClient::ResourceDispatcherHostCreated() {
   resource_dispatcher_host_delegate_ =
-      (RuntimeResourceDispatcherHostDelegate::Create()).Pass();
+      (RuntimeResourceDispatcherHostDelegate::Create());
   content::ResourceDispatcherHost::Get()->SetDelegate(
       resource_dispatcher_host_delegate_.get());
 }
@@ -354,7 +363,8 @@ bool XWalkContentBrowserClient::CanCreateWindow(const GURL& opener_url,
                              bool opener_suppressed,
                              content::ResourceContext* context,
                              int render_process_id,
-                             int opener_id,
+                             int opener_render_view_id,
+                             int opener_render_frame_id,
                              bool* no_javascript_access) {
   *no_javascript_access = false;
   application::Application* app = xwalk_runner_->app_system()->
@@ -374,15 +384,6 @@ bool XWalkContentBrowserClient::CanCreateWindow(const GURL& opener_url,
 }
 #endif
 
-content::LocationProvider*
-XWalkContentBrowserClient::OverrideSystemLocationProvider() {
-#if defined(OS_TIZEN)
-  return new LocationProviderTizen();
-#else
-  return nullptr;
-#endif
-}
-
 void XWalkContentBrowserClient::GetStoragePartitionConfigForSite(
     content::BrowserContext* browser_context,
     const GURL& site,
@@ -400,32 +401,25 @@ void XWalkContentBrowserClient::GetStoragePartitionConfigForSite(
 #endif
 }
 
-content::DevToolsManagerDelegate*
-  XWalkContentBrowserClient::GetDevToolsManagerDelegate() {
-  return new XWalkDevToolsDelegate(browser_context_);
+void XWalkContentBrowserClient::GetAdditionalAllowedSchemesForFileSystem(
+    std::vector<std::string>* additional_schemes) {
+#if !defined(OS_ANDROID)
+  additional_schemes->push_back("app");
+#endif
 }
 
-#if defined(OS_POSIX) && !defined(OS_MACOSX)
-void XWalkContentBrowserClient::GetAdditionalMappedFilesForChildProcess(
-    const base::CommandLine& command_line,
-    int child_process_id,
-    content::FileDescriptorInfo* mappings) {
-#if defined(V8_USE_EXTERNAL_STARTUP_DATA)
-  if (v8_natives_fd_.get() == -1 || v8_snapshot_fd_.get() == -1) {
-    int v8_natives_fd = -1;
-    int v8_snapshot_fd = -1;
-    if (gin::V8Initializer::OpenV8FilesForChildProcesses(&v8_natives_fd,
-                                                         &v8_snapshot_fd)) {
-      v8_natives_fd_.reset(v8_natives_fd);
-      v8_snapshot_fd_.reset(v8_snapshot_fd);
-    }
-  }
-  DCHECK(v8_natives_fd_.get() != -1 && v8_snapshot_fd_.get() != -1);
-  mappings->Share(kV8NativesDataDescriptor, v8_natives_fd_.get());
-  mappings->Share(kV8SnapshotDataDescriptor, v8_snapshot_fd_.get());
-#endif  // V8_USE_EXTERNAL_STARTUP_DATA
+content::PresentationServiceDelegate* XWalkContentBrowserClient::
+    GetPresentationServiceDelegate(content::WebContents* web_contents) {
+#if defined(OS_WIN)
+  return XWalkPresentationServiceDelegateWin::
+      GetOrCreateForWebContents(web_contents);
+#elif defined(OS_ANDROID)
+  return XWalkPresentationServiceDelegateAndroid::
+      GetOrCreateForWebContents(web_contents);
+#else
+  return nullptr;
+#endif
 }
-#endif  // defined(OS_POSIX) && !defined(OS_MACOSX)
 
 std::string XWalkContentBrowserClient::GetApplicationLocale() {
 #if defined(OS_ANDROID)
@@ -434,5 +428,22 @@ std::string XWalkContentBrowserClient::GetApplicationLocale() {
   return content::ContentBrowserClient::GetApplicationLocale();
 #endif
 }
+
+#if defined(OS_ANDROID)
+ScopedVector<content::NavigationThrottle>
+XWalkContentBrowserClient::CreateThrottlesForNavigation(
+    content::NavigationHandle* navigation_handle) {
+  ScopedVector<content::NavigationThrottle> throttles;
+  // We allow intercepting only navigations within main frames. This
+  // is used to post onPageStarted. We handle shouldOverrideUrlLoading
+  // via a sync IPC.
+  if (navigation_handle->IsInMainFrame()) {
+    throttles.push_back(
+        navigation_interception::InterceptNavigationDelegate::CreateThrottleFor(
+            navigation_handle));
+  }
+  return throttles;
+}
+#endif
 
 }  // namespace xwalk

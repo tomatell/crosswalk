@@ -18,10 +18,10 @@ namespace application {
 
 Package::Package(const base::FilePath& source_path,
     Manifest::Type manifest_type)
-    : source_path_(source_path),
-      is_extracted_(false),
-      is_valid_(false),
+    : is_valid_(false),
+      source_path_(source_path),
       name_(source_path_.BaseName().AsUTF8Unsafe()),
+      is_extracted_(false),
       manifest_type_(manifest_type) {
 }
 
@@ -29,18 +29,18 @@ Package::~Package() {
 }
 
 // static
-scoped_ptr<Package> Package::Create(const base::FilePath& source_path) {
+std::unique_ptr<Package> Package::Create(const base::FilePath& source_path) {
   if (source_path.MatchesExtension(FILE_PATH_LITERAL(".xpk"))) {
-    scoped_ptr<Package> package(new XPKPackage(source_path));
-    return package.Pass();
+    std::unique_ptr<Package> package(new XPKPackage(source_path));
+    return package;
   }
   if (source_path.MatchesExtension(FILE_PATH_LITERAL(".wgt"))) {
-    scoped_ptr<Package> package(new WGTPackage(source_path));
-    return package.Pass();
+    std::unique_ptr<Package> package(new WGTPackage(source_path));
+    return package;
   }
 
   LOG(ERROR) << "Invalid package type. Only .xpk/.wgt supported now";
-  return scoped_ptr<Package>();
+  return std::unique_ptr<Package>();
 }
 
 bool Package::ExtractToTemporaryDir(base::FilePath* target_path) {

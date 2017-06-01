@@ -9,7 +9,7 @@ import org.xwalk.core.XWalkExtension;
 public class ExtensionEcho extends XWalkExtension {
 
     public ExtensionEcho() {
-        super("echo",
+        super("echoJava",
               "var echoListener = null;"
               + "extension.setMessageListener(function(msg) {"
               + "  if (echoListener instanceof Function) {"
@@ -34,5 +34,10 @@ public class ExtensionEcho extends XWalkExtension {
     @Override
     public String onSyncMessage(int instanceID, String message) {
         return "From java sync:" + message;
+    }
+
+    @Override
+    public void onBinaryMessage(int instanceId, byte[] message) {
+        postBinaryMessage(instanceId, message);
     }
 }

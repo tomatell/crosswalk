@@ -1,115 +1,69 @@
-#!/usr/bin/env python
-
 # Copyright (c) 2013 Intel Corporation. All rights reserved.
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
-# pylint: disable=F0401
 
+import argparse
 import os
 import shutil
 import sys
-from common_function import RemoveUnusedFilesInReleaseMode
 
-def Clean(dir_to_clean):
-  if os.path.isdir(dir_to_clean):
-    shutil.rmtree(dir_to_clean)
+GYP_ANDROID_DIR = os.path.join(os.path.dirname(__file__),
+                               os.pardir, os.pardir, os.pardir,
+                               'build',
+                               'android',
+                               'gyp')
+sys.path.append(GYP_ANDROID_DIR)
 
-
-def PrepareFromXwalk(src_dir, target_dir):
-  '''Prepare different files for app packaging tools. All resources are used by
-  make_apk.py.
-  '''
-  # The version of yui compressor.
-  yui_compressor_version = '2.4.8'
-
-  # Get the dir of source code from src_dir: ../../.
-  source_code_dir = os.path.dirname(os.path.dirname(src_dir))
-
-  # The directory to copy libraries and code from.
-  jar_src_dir = os.path.join(src_dir, 'lib.java')
-  xwalk_core_library_dir = os.path.join(src_dir, 'xwalk_core_library')
-  xwalk_shared_library_dir = os.path.join(src_dir, 'xwalk_shared_library')
-
-  # The directory to copy libraries, code and resources to.
-  app_target_dir = os.path.join(target_dir, 'template')
-  jar_target_dir = os.path.join(app_target_dir, 'libs')
-
-  # The directory for source packaging tools.
-  tools_src_dir = os.path.join(source_code_dir, 'xwalk/app/tools/android')
-
-  # The source file/directory list to be copied and the target directory list.
-  source_target_list = [
-    (os.path.join(source_code_dir, 'xwalk/VERSION'), target_dir),
-    (os.path.join(source_code_dir, 'xwalk/API_VERSION'), target_dir),
-
-    # This jar is needed for minifying and obfuscating the javascript and css.
-    (os.path.join(tools_src_dir,
-                  'libs/yuicompressor-%s.jar' % yui_compressor_version),
-     target_dir),
-
-    # The app wrapper code. It's the template Java code.
-    (os.path.join(source_code_dir, 'xwalk/app/android/app_template'),
-     app_target_dir),
-
-    (os.path.join(jar_src_dir, 'xwalk_app_runtime_java.jar'), jar_target_dir),
-
-    # XWalk Core Library
-    (xwalk_core_library_dir, os.path.join(target_dir, 'xwalk_core_library')),
-
-    # XWalk Shared Library
-    (xwalk_shared_library_dir, os.path.join(target_dir, 'xwalk_shared_library')),
-
-    # Build and python tools.
-    (os.path.join(tools_src_dir, 'ant', 'xwalk-debug.keystore'), target_dir),
-    (os.path.join(tools_src_dir, 'app_info.py'), target_dir),
-    (os.path.join(tools_src_dir, 'compress_js_and_css.py'), target_dir),
-    (os.path.join(tools_src_dir, 'customize.py'), target_dir),
-    (os.path.join(tools_src_dir, 'customize_launch_screen.py'), target_dir),
-    (os.path.join(tools_src_dir, 'extension_manager.py'), target_dir),
-    (os.path.join(tools_src_dir, 'handle_permissions.py'), target_dir),
-    (os.path.join(tools_src_dir, 'handle_xml.py'), target_dir),
-    (os.path.join(tools_src_dir, 'make_apk.py'), target_dir),
-    (os.path.join(tools_src_dir, 'manifest_json_parser.py'), target_dir),
-    (os.path.join(tools_src_dir, 'parse_xpk.py'), target_dir),
-    (os.path.join(tools_src_dir, 'util.py'), target_dir)
-  ]
-
-  for index in range(len(source_target_list)):
-    source_path, target_path = source_target_list[index]
-
-    # Process source.
-    if not os.path.exists(source_path):
-      print ('The source path "%s" does not exist.' % source_path)
-      continue
-
-    source_is_file = os.path.isfile(source_path)
-
-    # Process target.
-    if source_is_file and not os.path.exists(target_path):
-      os.makedirs(target_path)
-    if not source_is_file and os.path.isdir(target_path):
-      shutil.rmtree(target_path)
-
-    # Do copy.
-    if source_is_file:
-      shutil.copy(source_path, target_path)
-    else:
-      shutil.copytree(source_path, target_path)
-
-  # Remove unused files.
-  mode = os.path.basename(os.path.dirname(target_dir))
-  RemoveUnusedFilesInReleaseMode(mode, os.path.join(target_dir, 'native_libs'))
+from util import build_utils
 
 
-def main(args):
-  if len(args) != 1:
-    print 'You must provide only one argument: folder to update'
-    return 1
-  target_dir = args[0]
-  src_dir = os.path.dirname(target_dir)
-  Clean(target_dir)
-  PrepareFromXwalk(src_dir, target_dir)
+def main():
+  parser = argparse.ArgumentParser()
+  parser.add_argument('--android-template', required=True,
+                      help='Path to the main template directory.')
+  parser.add_argument('--core-library-dir', required=True,
+                      help='Path to xwalk_core_library/.')
+  parser.add_argument('--extra-files',
+                      help='Extra files to add to the template.')
+  parser.add_argument('--output-dir', required=True,
+                      help='Directory where the app template files will be '
+                      'stored.')
+  parser.add_argument('--shared-library-dir', required=True,
+                      help='Path to xwalk_shared_library/.')
+  parser.add_argument('--stamp', required=True,
+                      help='Path to touch on success.')
+  parser.add_argument('--xwalk-runtime-jar', required=True,
+                      help='Path to the Crosswalk runtime JAR.')
+
+  args = parser.parse_args(build_utils.ExpandFileArgs(sys.argv[1:]))
+
+  build_utils.DeleteDirectory(args.output_dir)
+  build_utils.MakeDirectory(args.output_dir)
+
+  shutil.copytree(args.android_template,
+                  os.path.join(args.output_dir, 'template'),
+                  # Make sure app/android/app_template's BUILD.gn is
+                  # not included.
+                  ignore=shutil.ignore_patterns('*.gn'))
+  shutil.copytree(args.core_library_dir,
+                  os.path.join(args.output_dir, 'xwalk_core_library'))
+  shutil.copytree(args.shared_library_dir,
+                  os.path.join(args.output_dir, 'xwalk_shared_library'))
+
+  # For now at least, we have to continue calling the runtime JAR
+  # xwalk_app_runtime_java.jar to avoid breaking app-tools.
+  template_libs_dir = os.path.join(args.output_dir, 'template', 'libs')
+  build_utils.MakeDirectory(template_libs_dir)
+  shutil.copy2(args.xwalk_runtime_jar,
+               os.path.join(template_libs_dir, 'xwalk_app_runtime_java.jar'))
+
+  for extra_file in build_utils.ParseGypList(args.extra_files):
+    # For now we just assume all files are supposed to go to the root of the
+    # output directory.
+    shutil.copy2(extra_file, args.output_dir)
+
+  build_utils.Touch(args.stamp)
 
 
 if __name__ == '__main__':
-  sys.exit(main(sys.argv[1:]))
+  sys.exit(main())

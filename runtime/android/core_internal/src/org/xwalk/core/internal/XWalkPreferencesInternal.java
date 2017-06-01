@@ -4,6 +4,8 @@
 
 package org.xwalk.core.internal;
 
+import android.util.Log;
+
 import java.lang.ref.ReferenceQueue;
 import java.lang.ref.WeakReference;
 import java.util.ArrayList;
@@ -18,6 +20,8 @@ import java.util.Map;
  */
 @XWalkAPI(noInstance = true)
 public class XWalkPreferencesInternal {
+    private static final String TAG = "XWalkPreferences";
+
     static class PreferenceValue {
         static final int PREFERENCE_TYPE_BOOLEAN = 1;
         static final int PREFERENCE_TYPE_INTEGER = 2;
@@ -141,16 +145,33 @@ public class XWalkPreferencesInternal {
     public static final String PROFILE_NAME = "profile-name";
 
     /**
-     * The key string to enable/disable javascript.
-     * TODO(wang16): Remove this after cordova removes its dependency.
+     * The key string to enable/disable spatial navigation like a TV controller.
+     * @since 6.0
      */
-    static final String ENABLE_JAVASCRIPT = "enable-javascript";
+    @XWalkAPI
+    public static final String SPATIAL_NAVIGATION = "enable-spatial-navigation";
+
+    /*
+     * The key string to enable/disable website's "theme-color" attribute.
+     * Default is true, and it only works on Android Lollipop or later.
+     * @since 6.0
+     */
+    @XWalkAPI
+    public static final String ENABLE_THEME_COLOR = "enable-theme-color";
+
+    /**
+     * The key string to enable/disable javascript.
+     * @since 7.0
+     */
+    @XWalkAPI
+    public static final String ENABLE_JAVASCRIPT = "enable-javascript";
 
     /**
      * The key string to enable/disable xwalk extensions.
-     *
+     * @since 7.0
      */
-    static final String ENABLE_EXTENSIONS = "enable-extensions";
+    @XWalkAPI
+    public static final String ENABLE_EXTENSIONS = "enable-extensions";
 
     static {
         sPrefMap.put(REMOTE_DEBUGGING, new PreferenceValue(false));
@@ -162,6 +183,8 @@ public class XWalkPreferencesInternal {
         sPrefMap.put(SUPPORT_MULTIPLE_WINDOWS, new PreferenceValue(false));
         sPrefMap.put(ENABLE_EXTENSIONS, new PreferenceValue(true));
         sPrefMap.put(PROFILE_NAME, new PreferenceValue("Default"));
+        sPrefMap.put(SPATIAL_NAVIGATION, new PreferenceValue(true));
+        sPrefMap.put(ENABLE_THEME_COLOR, new PreferenceValue(true));
     }
 
     /**
@@ -171,14 +194,13 @@ public class XWalkPreferencesInternal {
      * @param enabled true if setting it as enabled.
      * @since 1.0
      */
-    @XWalkAPI
+    @XWalkAPI(reservable = true)
     public static synchronized void setValue(String key, boolean enabled) throws RuntimeException {
         checkKey(key);
         // If the listener list is not empty, we consider the preference is
         // loaded by Crosswalk and taken effect already.
         if (key == ANIMATABLE_XWALK_VIEW && !sListeners.isEmpty()) {
-            throw new RuntimeException("Warning: the preference key " + key +
-                    " can not be set if the preference is already loaded by Crosswalk");
+            Log.d(TAG, "ANIMATABLE_XWALK_VIEW is not effective to existing XWalkView objects");
         }
         if (sPrefMap.get(key).getBooleanValue() != enabled) {
             PreferenceValue v = new PreferenceValue(enabled);
@@ -194,14 +216,13 @@ public class XWalkPreferencesInternal {
      * @param value the integer value.
      * @since 3.0
      */
-    @XWalkAPI
+    @XWalkAPI(reservable = true)
     public static synchronized void setValue(String key, int value) throws RuntimeException {
         checkKey(key);
         // If the listener list is not empty, we consider the preference is
         // loaded by Crosswalk and taken effect already.
         if (key == ANIMATABLE_XWALK_VIEW && !sListeners.isEmpty()) {
-            throw new RuntimeException("Warning: the preference key " + key +
-                    " can not be set if the preference is already loaded by Crosswalk");
+            Log.d(TAG, "ANIMATABLE_XWALK_VIEW is not effective to existing XWalkView objects");
         }
         if (sPrefMap.get(key).getIntegerValue() != value) {
             PreferenceValue v = new PreferenceValue(value);
@@ -217,14 +238,13 @@ public class XWalkPreferencesInternal {
      * @param value the string value.
      * @since 3.0
      */
-    @XWalkAPI
+    @XWalkAPI(reservable = true)
     public static synchronized void setValue(String key, String value) throws RuntimeException {
         checkKey(key);
         // If the listener list is not empty, we consider the preference is
         // loaded by Crosswalk and taken effect already.
         if (key == ANIMATABLE_XWALK_VIEW && !sListeners.isEmpty()) {
-            throw new RuntimeException("Warning: the preference key " + key +
-                    " can not be set if the preference is already loaded by Crosswalk");
+            Log.d(TAG, "ANIMATABLE_XWALK_VIEW is not effective to existing XWalkView objects");
         }
         if (value != null && !value.equals(sPrefMap.get(key).getStringValue())) {
             PreferenceValue v = new PreferenceValue(value);

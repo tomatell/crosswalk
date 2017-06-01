@@ -5,7 +5,6 @@
 
 package org.xwalk.core.xwview.test;
 
-import android.graphics.Bitmap;
 import android.test.suitebuilder.annotation.SmallTest;
 import org.chromium.base.test.util.Feature;
 import android.test.MoreAsserts;
@@ -23,9 +22,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
-import org.xwalk.core.XWalkView;
-import org.xwalk.core.internal.XWalkCookieManager;
-import org.xwalk.core.internal.XWalkClient;
+import org.xwalk.core.XWalkCookieManager;
 
 /**
  * Tests for the CookieManager.
@@ -117,12 +114,12 @@ public class CookieManagerTest extends XWalkViewTestBase {
     }
 
     private void waitForCookie(final String url) throws InterruptedException {
-        assertTrue(CriteriaHelper.pollForCriteria(new Criteria() {
+        CriteriaHelper.pollInstrumentationThread(new Criteria() {
             @Override
             public boolean isSatisfied() {
                 return mCookieManager.getCookie(url) != null;
             }
-        }, 6000, 50));
+        }, 6000, 50);
     }
 
     private void validateCookies(String responseCookie, String... expectedCookieNames) {
@@ -152,21 +149,21 @@ public class CookieManagerTest extends XWalkViewTestBase {
         mCookieManager.setCookie(url, cookie);
         assertEquals(cookie, mCookieManager.getCookie(url));
 
-        assertTrue(CriteriaHelper.pollForCriteria(new Criteria() {
+        CriteriaHelper.pollInstrumentationThread(new Criteria() {
             @Override
             public boolean isSatisfied() {
                 return mCookieManager.hasCookies();
             }
-        }));
+        });
 
         // Clean up all cookies.
         mCookieManager.removeAllCookie();
-        assertTrue(CriteriaHelper.pollForCriteria(new Criteria() {
+        CriteriaHelper.pollInstrumentationThread(new Criteria() {
             @Override
             public boolean isSatisfied() {
                 return !mCookieManager.hasCookies();
             }
-        }));
+        });
     }
 
     @MediumTest
@@ -205,31 +202,31 @@ public class CookieManagerTest extends XWalkViewTestBase {
         assertTrue(allCookies.contains(cookie3));
 
         mCookieManager.removeSessionCookie();
-        assertTrue(CriteriaHelper.pollForCriteria(new Criteria() {
+        CriteriaHelper.pollInstrumentationThread(new Criteria() {
             @Override
             public boolean isSatisfied() {
                 String c = mCookieManager.getCookie(url);
                 return !c.contains(cookie1) && c.contains(cookie2) && c.contains(cookie3);
             }
-        }));
+        });
 
         // Wait for cookie to expire.
         Thread.sleep(expiration + 1000);
         mCookieManager.removeExpiredCookie();
-        assertTrue(CriteriaHelper.pollForCriteria(new Criteria() {
+        CriteriaHelper.pollInstrumentationThread(new Criteria() {
             @Override
             public boolean isSatisfied() {
                 String c = mCookieManager.getCookie(url);
                 return !c.contains(cookie1) && c.contains(cookie2) && !c.contains(cookie3);
             }
-        }));
+        });
 
         mCookieManager.removeAllCookie();
-        assertTrue(CriteriaHelper.pollForCriteria(new Criteria() {
+        CriteriaHelper.pollInstrumentationThread(new Criteria() {
             @Override
             public boolean isSatisfied() {
                 return mCookieManager.getCookie(url) == null;
             }
-        }));
+        });
     }
 }

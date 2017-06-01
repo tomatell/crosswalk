@@ -4,7 +4,6 @@
 // found in the LICENSE file.
 
 #include <string>
-#include "base/basictypes.h"
 #include "xwalk/application/common/id_util.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -14,17 +13,13 @@ namespace application {
 namespace {
 
 std::string MakePlatformId(const std::string& arg) {
-#if defined(OS_TIZEN)
-  return "xwalk." + arg;
-#else
   return arg;
-#endif
 }
 
 }  // namespace
 
 TEST(IDUtilTest, GenerateID) {
-  const uint8 public_key_info[] = {
+  const uint8_t public_key_info[] = {
     0x30, 0x81, 0x9f, 0x30, 0x0d, 0x06, 0x09, 0x2a, 0x86, 0x48, 0x86, 0xf7,
     0x0d, 0x01, 0x01, 0x01, 0x05, 0x00, 0x03, 0x81, 0x8d, 0x00, 0x30, 0x81,
     0x89, 0x02, 0x81, 0x81, 0x00, 0xb8, 0x7f, 0x2b, 0x20, 0xdc, 0x7c, 0x9b,
@@ -74,20 +69,8 @@ TEST(IDUtilTest, IsValidApplicationID) {
       MakePlatformId("abcdefghijklmnopabcdefghijklmnoq")));
   EXPECT_FALSE(IsValidApplicationID(
       MakePlatformId("abcdefghijklmnopabcdefghijklmno0")));
-
-// For Tizen platform upper case letters in application id are not allowed
-// so we expect false unlike in the other platforms that accept them.
-#if defined(OS_TIZEN)
-  EXPECT_FALSE(IsValidApplicationID(
-      MakePlatformId("ABCDEFGHIJKLMNOPABCDEFGHIJKLMNOP")));
-#else
   EXPECT_TRUE(IsValidApplicationID(
       MakePlatformId("ABCDEFGHIJKLMNOPABCDEFGHIJKLMNOP")));
-#endif
-
-#if defined(OS_TIZEN)
-  EXPECT_FALSE(IsValidApplicationID("abcdefghijklmnopabcdefghijklmnop"));
-#endif
 }
 
 }  // namespace application

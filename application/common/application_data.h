@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <iosfwd>
 #include <map>
+#include <memory>
 #include <set>
 #include <string>
 #include <utility>
@@ -16,7 +17,6 @@
 #include "base/files/file_path.h"
 #include "base/memory/linked_ptr.h"
 #include "base/memory/ref_counted.h"
-#include "base/memory/scoped_ptr.h"
 #include "base/strings/string_util.h"
 #include "base/synchronization/lock.h"
 #include "base/threading/thread_checker.h"
@@ -25,6 +25,10 @@
 #include "xwalk/application/common/manifest.h"
 #include "xwalk/application/common/permission_types.h"
 #include "xwalk/application/common/package/package.h"
+
+#if defined(OS_WIN)
+#define strcasecmp _stricmp
+#endif
 
 namespace base {
 class DictionaryValue;
@@ -49,7 +53,7 @@ class ApplicationData : public base::RefCountedThreadSafe<ApplicationData> {
 
   struct ApplicationIdCompare {
     bool operator()(const std::string& s1, const std::string& s2) const {
-      return base::strcasecmp(s1.c_str(), s2.c_str()) < 0;
+      return strcasecmp(s1.c_str(), s2.c_str()) < 0;
     }
   };
 
@@ -68,8 +72,8 @@ class ApplicationData : public base::RefCountedThreadSafe<ApplicationData> {
   };
 
   static scoped_refptr<ApplicationData> Create(const base::FilePath& app_path,
-      const std::string& explicit_id, SourceType source_type,
-          scoped_ptr<Manifest> manifest, std::string* error_message);
+      const std::string& id, SourceType source_type,
+          std::unique_ptr<Manifest> manifest, std::string* error_message);
 
   // Returns an absolute url to a resource inside of an application. The
   // |application_url| argument should be the url() from an Application object.
@@ -92,20 +96,12 @@ class ApplicationData : public base::RefCountedThreadSafe<ApplicationData> {
   // all SetManifestData calls should be on only one thread.
   void SetManifestData(const std::string& key, ManifestData* data);
 
-#if defined(OS_TIZEN)
-  void set_bundle(const std::string& bundle);
-#endif
-
   // Accessors:
   const base::FilePath& path() const { return path_; }
   const GURL& URL() const { return application_url_; }
   SourceType source_type() const { return source_type_; }
   Manifest::Type manifest_type() const { return manifest_->type(); }
   const std::string& ID() const { return application_id_; }
-#if defined(OS_TIZEN)
-  std::string GetPackageID() const;
-  const std::string& bundle() const;
-#endif
   const base::Version* Version() const { return version_.get(); }
   const std::string VersionString() const;
   const std::string& Name() const { return name_; }
@@ -142,16 +138,13 @@ class ApplicationData : public base::RefCountedThreadSafe<ApplicationData> {
   friend class base::RefCountedThreadSafe<ApplicationData>;
   friend class ApplicationStorageImpl;
 
-  ApplicationData(const base::FilePath& path,
-      SourceType source_type, scoped_ptr<Manifest> manifest);
+  ApplicationData(const base::FilePath& path, const std::string& id,
+      SourceType source_type, std::unique_ptr<Manifest> manifest);
   virtual ~ApplicationData();
 
   // Initialize the application from a parsed manifest.
-  bool Init(const std::string& explicit_id, base::string16* error);
+  bool Init(base::string16* error);
 
-  // Chooses the application ID for an application based on a variety of
-  // criteria. The chosen ID will be set in |manifest|.
-  bool LoadID(const std::string& explicit_id, base::string16* error);
   // The following are helpers for InitFromValue to load various features of the
   // application from the manifest.
   bool LoadName(base::string16* error);
@@ -189,13 +182,13 @@ class ApplicationData : public base::RefCountedThreadSafe<ApplicationData> {
   GURL application_url_;
 
   // The application's version.
-  scoped_ptr<base::Version> version_;
+  std::unique_ptr<base::Version> version_;
 
   // An optional longer description of the application.
   std::string description_;
 
   // The manifest from which this application was created.
-  scoped_ptr<Manifest> manifest_;
+  std::unique_ptr<Manifest> manifest_;
 
   // Stored parsed manifest data.
   ManifestDataMap manifest_data_;
@@ -218,10 +211,6 @@ class ApplicationData : public base::RefCountedThreadSafe<ApplicationData> {
   gfx::Rect window_bounds_;
   gfx::Size window_min_size_;
   gfx::Size window_max_size_;
-
-#if defined(OS_TIZEN)
-  std::string bundle_;
-#endif
 
   DISALLOW_COPY_AND_ASSIGN(ApplicationData);
 };

@@ -52,11 +52,13 @@ void XWalkRenderViewHostExt::MarkHitTestDataRead() {
   has_new_hit_test_data_ = false;
 }
 
-void XWalkRenderViewHostExt::RequestNewHitTestDataAt(int view_x, int view_y) {
+void XWalkRenderViewHostExt::RequestNewHitTestDataAt(
+    const gfx::PointF& touch_center,
+    const gfx::SizeF& touch_area) {
   DCHECK(CalledOnValidThread());
   Send(new XWalkViewMsg_DoHitTest(web_contents()->GetRoutingID(),
-                               view_x,
-                               view_y));
+                               touch_center,
+                               touch_area));
 }
 
 const XWalkHitTestData& XWalkRenderViewHostExt::GetLastHitTestData() const {
@@ -115,6 +117,13 @@ void XWalkRenderViewHostExt::DidNavigateAnyFrame(
       ->AddVisitedURLs(params.redirects);
 }
 
+void XWalkRenderViewHostExt::OnPageScaleFactorChanged(float page_scale_factor) {
+  XWalkContentsClientBridgeBase* client_bridge =
+      XWalkContentsClientBridgeBase::FromWebContents(web_contents());
+  if (client_bridge != NULL)
+    client_bridge->OnWebLayoutPageScaleFactorChanged(page_scale_factor);
+}
+
 bool XWalkRenderViewHostExt::OnMessageReceived(const IPC::Message& message) {
   bool handled = true;
   IPC_BEGIN_MESSAGE_MAP(XWalkRenderViewHostExt, message)
@@ -122,8 +131,6 @@ bool XWalkRenderViewHostExt::OnMessageReceived(const IPC::Message& message) {
                         OnDocumentHasImagesResponse)
     IPC_MESSAGE_HANDLER(XWalkViewHostMsg_UpdateHitTestData,
                         OnUpdateHitTestData)
-    IPC_MESSAGE_HANDLER(XWalkViewHostMsg_PageScaleFactorChanged,
-                        OnPageScaleFactorChanged)
     IPC_MESSAGE_UNHANDLED(handled = false)
   IPC_END_MESSAGE_MAP()
 
@@ -163,16 +170,15 @@ void XWalkRenderViewHostExt::SetOriginAccessWhitelist(
   }
 }
 
-void XWalkRenderViewHostExt::OnPageScaleFactorChanged(float page_scale_factor) {
-  XWalkContentsClientBridgeBase* client_bridge =
-      XWalkContentsClientBridgeBase::FromWebContents(web_contents());
-  if (client_bridge != NULL)
-    client_bridge->OnWebLayoutPageScaleFactorChanged(page_scale_factor);
-}
-
 void XWalkRenderViewHostExt::SetBackgroundColor(SkColor c) {
   DCHECK(CalledOnValidThread());
   Send(new XWalkViewMsg_SetBackgroundColor(web_contents()->GetRoutingID(), c));
+}
+
+void XWalkRenderViewHostExt::SetTextZoomFactor(float factor) {
+  DCHECK(CalledOnValidThread());
+  Send(new XWalkViewMsg_SetTextZoomFactor(web_contents()->GetRoutingID(),
+      factor));
 }
 
 }  // namespace xwalk

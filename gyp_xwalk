@@ -8,6 +8,7 @@
 # is invoked by Chromium beyond what can be done in the gclient hooks.
 
 import argparse
+import gc
 import glob
 import os
 import re
@@ -22,20 +23,15 @@ chrome_src = os.path.abspath(os.path.join(xwalk_dir, os.pardir))
 sys.path.insert(0, os.path.join(chrome_src, 'tools', 'gyp', 'pylib'))
 import gyp
 
-sys.path.insert(0, os.path.join(chrome_src, 'build'))
-import gyp_environment
-import vs_toolchain
-
 # Assume this file is in a one-level-deep subdirectory of the source root.
 SRC_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 # Add paths so that pymod_do_main(...) can import files.
+sys.path.insert(1, os.path.join(chrome_src, 'android_webview', 'tools'))
 sys.path.insert(1, os.path.join(chrome_src, 'build', 'android', 'gyp'))
-sys.path.insert(1, os.path.join(chrome_src, 'tools'))
-sys.path.insert(1, os.path.join(chrome_src, 'tools', 'generate_shim_headers'))
-sys.path.insert(1, os.path.join(chrome_src, 'tools', 'grit'))
 sys.path.insert(1, os.path.join(chrome_src, 'chrome', 'tools', 'build'))
 sys.path.insert(1, os.path.join(chrome_src, 'chromecast', 'tools', 'build'))
+sys.path.insert(1, os.path.join(chrome_src, 'ios', 'chrome', 'tools', 'build'))
 sys.path.insert(1, os.path.join(chrome_src, 'native_client', 'build'))
 sys.path.insert(1, os.path.join(chrome_src, 'native_client_sdk', 'src',
     'build_tools'))
@@ -43,6 +39,13 @@ sys.path.insert(1, os.path.join(chrome_src, 'remoting', 'tools', 'build'))
 sys.path.insert(1, os.path.join(chrome_src, 'third_party', 'liblouis'))
 sys.path.insert(1, os.path.join(chrome_src, 'third_party', 'WebKit',
     'Source', 'build', 'scripts'))
+sys.path.insert(1, os.path.join(chrome_src, 'build'))
+sys.path.insert(1, os.path.join(chrome_src, 'tools'))
+sys.path.insert(1, os.path.join(chrome_src, 'tools', 'generate_shim_headers'))
+sys.path.insert(1, os.path.join(chrome_src, 'tools', 'grit'))
+
+import gyp_environment
+import vs_toolchain
 
 # On Windows, Psyco shortens warm runs of build/gyp_chromium by about
 # 20 seconds on a z600 machine with 12 GB of RAM, from 90 down to 70
@@ -179,11 +182,11 @@ def additional_include_files(supplemental_files, args=[]):
   if os.environ.get('GYP_INCLUDE_FIRST') != None:
     AddInclude(os.path.join(chrome_src, os.environ.get('GYP_INCLUDE_FIRST')))
 
-  # Include xwalk common.gypi to effect chromium source tree.
-  AddInclude(os.path.join(xwalk_dir, 'build', 'common.gypi'))
-
   # Always include common.gypi.
   AddInclude(os.path.join(chrome_src, 'build', 'common.gypi'))
+
+  # Include xwalk common.gypi to effect chromium source tree.
+  AddInclude(os.path.join(xwalk_dir, 'build', 'common.gypi'))
 
   # Optionally add supplemental .gypi files if present.
   for supplement in supplemental_files:
@@ -195,12 +198,11 @@ def additional_include_files(supplemental_files, args=[]):
   return result
 
 
-if __name__ == '__main__':
+def main():
   # Disabling garbage collection saves about 1 second out of 16 on a Linux
   # z620 workstation. Since this is a short-lived process it's not a problem to
   # leak a few cyclyc references in order to spare the CPU cycles for
   # scanning the heap.
-  import gc
   gc.disable()
 
   args = sys.argv[1:]
@@ -212,28 +214,9 @@ if __name__ == '__main__':
     args.append('-Gconfig_path=' + args.pop(0))
     args.append('-Ganalyzer_output_path=' + args.pop(0))
 
-  if int(os.environ.get('GYP_CHROMIUM_NO_ACTION', 0)):
-    print 'Skipping gyp_chromium due to GYP_CHROMIUM_NO_ACTION env var.'
+  if int(os.environ.get('GYP_CHROMIUM_NO_ACTION', 1)):
+    print 'Skipping gyp_xwalk due to GYP_CHROMIUM_NO_ACTION env var.'
     sys.exit(0)
-
-  # Support external media types capability such as MP4/MP3.
-  args = list(set(args))
-  delist = []
-  ip_media_codecs = False # Default: no third-party codecs be build in.
-  for arg in args:
-    if arg.startswith('-Dproprietary_codecs') or arg.startswith('-Dffmpeg_branding'):
-      continue
-    elif arg == '-Dmediacodecs_EULA=1':
-      ip_media_codecs = True  # Exception: mediacodecs_EULA be enabled.
-    else:
-      delist.append(arg)
-
-  args = delist
-  args.append('-Dproprietary_codecs=1')
-
-  # Triggering media playback dynamically with third-party codecs by owner.
-  if ip_media_codecs == True:
-      args.append('-Dffmpeg_branding=Chrome')
 
   # Use the Psyco JIT if available.
   if psyco:
@@ -250,19 +233,12 @@ if __name__ == '__main__':
                                                'python2*_bin')))[-1]
     env = os.environ.copy()
     env['PATH'] = python_dir + os.pathsep + env.get('PATH', '')
-    p = subprocess.Popen(
-       [os.path.join(python_dir, 'python.exe')] + sys.argv,
-       env=env, shell=False)
-    p.communicate()
-    sys.exit(p.returncode)
+    cmd = [os.path.join(python_dir, 'python.exe')] + sys.argv
+    sys.exit(subprocess.call(cmd, env=env))
 
   # This could give false positives since it doesn't actually do real option
   # parsing.  Oh well.
-  gyp_file_specified = False
-  for arg in args:
-    if arg.endswith('.gyp'):
-      gyp_file_specified = True
-      break
+  gyp_file_specified = any(arg.endswith('.gyp') for arg in args)
 
   gyp_environment.SetEnvironment()
 
@@ -277,18 +253,27 @@ if __name__ == '__main__':
     else:
       args.append(os.path.join(xwalk_dir, 'xwalk.gyp'))
 
+  supplemental_includes = GetSupplementalFiles()
+  gyp_vars_dict = GetGypVars(supplemental_includes)
   # There shouldn't be a circular dependency relationship between .gyp files,
   # but in Chromium's .gyp files, on non-Mac platforms, circular relationships
   # currently exist.  The check for circular dependencies is currently
-  # bypassed on other platforms, but is left enabled on the Mac, where a
-  # violation of the rule causes Xcode to misbehave badly.
+  # bypassed on other platforms, but is left enabled on iOS, where a violation
+  # of the rule causes Xcode to misbehave badly.
   # TODO(mark): Find and kill remaining circular dependencies, and remove this
   # option.  http://crbug.com/35878.
   # TODO(tc): Fix circular dependencies in ChromiumOS then add linux2 to the
   # list.
-  # TODO(tmpsantos): Make runtime a proper module and enable the circular check
-  # back for Mac.
-  args.append('--no-circular-check')
+  if gyp_vars_dict.get('OS') != 'ios':
+    args.append('--no-circular-check')
+
+  # libtool on Mac warns about duplicate basenames in static libraries, so
+  # they're disallowed in general by gyp. We are lax on this point, so disable
+  # this check other than on Mac. GN does not use static libraries as heavily,
+  # so over time this restriction will mostly go away anyway, even on Mac.
+  # https://code.google.com/p/gyp/issues/detail?id=384
+  if sys.platform != 'darwin':
+    args.append('--no-duplicate-basename-check')
 
   # We explicitly don't support the make gyp generator (crbug.com/348686). Be
   # nice and fail here, rather than choking in gyp.
@@ -308,9 +293,6 @@ if __name__ == '__main__':
   syntax_check = os.environ.get('CHROMIUM_GYP_SYNTAX_CHECK')
   if syntax_check and int(syntax_check):
     args.append('--check')
-
-  supplemental_includes = GetSupplementalFiles()
-  gyp_vars_dict = GetGypVars(supplemental_includes)
 
   # TODO(dmikurube): Remove these checks and messages after a while.
   if ('linux_use_tcmalloc' in gyp_vars_dict or
@@ -338,20 +320,6 @@ if __name__ == '__main__':
 
   args.extend(['-D', 'gyp_output_dir=' + GetOutputDirectory()])
 
-  # Enable Web Audio by default on Android x86
-  if gyp_vars_dict.get('OS') == 'android':
-    args.append('-Duse_openmax_dl_fft=1')
-
-  # Enable Aura by default on all platforms except Android and Mac.
-  if gyp_vars_dict.get('OS') != 'android' and sys.platform not in ('darwin',):
-    args.append('-Duse_aura=1')
-
-  if gyp_vars_dict.get('OS') == 'android':
-    args.append('-Dnotifications=1')
-    args.append('-Drelease_unwind_tables=0')
-    # LZMA is disalbed by default.
-    args.append('-Duse_lzma=0')
-
   if not use_analyzer:
     print 'Updating projects from gyp files...'
     sys.stdout.flush()
@@ -368,3 +336,6 @@ if __name__ == '__main__':
         (x86_runtime, x64_runtime))
 
   sys.exit(gyp_rc)
+
+if __name__ == '__main__':
+  sys.exit(main())

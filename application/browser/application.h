@@ -77,6 +77,10 @@ class Application : public Runtime::Observer,
   content::RenderProcessHost* render_process_host() {
     return render_process_host_; }
 
+  const ApplicationSecurityPolicy* security_policy() const {
+    return security_policy_.get();
+  }
+
   const ApplicationData* data() const { return data_.get(); }
   ApplicationData* data() { return data_.get(); }
 
@@ -99,8 +103,6 @@ class Application : public Runtime::Observer,
                      const std::string& permission_name,
                      StoredPermission perm);
   bool CanRequestURL(const GURL& url) const;
-  bool IsFullScreenRequired() const {
-      return window_show_params_.state == ui::SHOW_STATE_FULLSCREEN; }
 
   void set_observer(Observer* observer) { observer_ = observer; }
 
@@ -112,11 +114,11 @@ class Application : public Runtime::Observer,
   Application(scoped_refptr<ApplicationData> data,
               XWalkBrowserContext* context);
   virtual bool Launch();
-  virtual void InitSecurityPolicy();
 
   // Runtime::Observer implementation.
   void OnNewRuntimeAdded(Runtime* runtime) override;
   void OnRuntimeClosed(Runtime* runtime) override;
+  void OnApplicationExitRequested(Runtime* runtime) override;
 
   // Get the path of splash screen image. Return empty path by default.
   // Sub class can override it to return a specific path.
@@ -137,7 +139,7 @@ class Application : public Runtime::Observer,
  private:
   // We enforce ApplicationService ownership.
   friend class ApplicationService;
-  static scoped_ptr<Application> Create(scoped_refptr<ApplicationData> data,
+  static std::unique_ptr<Application> Create(scoped_refptr<ApplicationData> data,
       XWalkBrowserContext* context);
 
   // content::RenderProcessHostObserver implementation.
@@ -151,7 +153,7 @@ class Application : public Runtime::Observer,
   // manifest, returns it and the entry point used.
   template <Manifest::Type> GURL GetStartURL() const;
 
-  template <Manifest::Type> void GetWindowShowState(
+  template <Manifest::Type> void SetWindowShowState(
       NativeAppWindow::CreateParams* params);
 
   GURL GetAbsoluteURLFromKey(const std::string& key) const;
@@ -164,7 +166,7 @@ class Application : public Runtime::Observer,
   // Application's session permissions.
   StoredPermissionMap permission_map_;
   // Security policy.
-  scoped_ptr<ApplicationSecurityPolicy> security_policy_;
+  std::unique_ptr<ApplicationSecurityPolicy> security_policy_;
   // WeakPtrFactory should be always declared the last.
   base::WeakPtrFactory<Application> weak_factory_;
   DISALLOW_COPY_AND_ASSIGN(Application);

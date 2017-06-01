@@ -276,18 +276,6 @@ public class RuntimeClientApiTestBase<T extends Activity> {
         }
     }
 
-    // For internal extension implementation of Contacts.
-    public void testContacts() throws Throwable {
-        String title = mTestUtil.loadAssetFileAndWaitForTitle("contacts.html");
-        mTestCase.assertEquals("Pass", title);
-    }
-
-    // For internal extension implementation of DeviceCapabilities.
-    public void testDeviceCapabilities() throws Throwable {
-        String title = mTestUtil.loadAssetFileAndWaitForTitle("device_capabilities.html");
-        mTestCase.assertEquals("Pass", title);
-    }
-
     // For internal extension implementation of ScreenOrientation.
     public void testScreenOrientation() throws Throwable {
         String title = mTestUtil.loadAssetFileAndWaitForTitle("screen_orientation.html");
@@ -306,13 +294,13 @@ public class RuntimeClientApiTestBase<T extends Activity> {
 
     // For external extension mechanism: async mode.
     public void testExternalExtensionAsync() throws Throwable {
-        String title = mTestUtil.loadAssetFileAndWaitForTitle("echo.html");
+        String title = mTestUtil.loadAssetFileAndWaitForTitle("echo_java.html");
         mTestCase.assertEquals("Pass", title);
     }
 
     // For external extension mechanism: sync mode.
     public void testExternalExtensionSync() throws Throwable {
-        mTestUtil.loadAssetFile("echoSync.html");
+        mTestUtil.loadAssetFile("echo_sync_java.html");
         mTestCase.getInstrumentation().runOnMainSync(new Runnable() {
             @Override
             public void run() {
@@ -322,9 +310,15 @@ public class RuntimeClientApiTestBase<T extends Activity> {
         });
     }
 
-    // For internal extension implementation of Messaging.
-    public void testMessaging() throws Throwable {
-        String title = mTestUtil.loadAssetFileAndWaitForTitle("messaging_mini.html");
+    // For native external extension mechanism.
+    public void testNativeExternalExtension() throws Throwable {
+        String title = mTestUtil.loadAssetFileAndWaitForTitle("echo.html");
+        mTestCase.assertEquals("Pass", title);
+    }
+
+    // For external extension mechanism: binary mode.
+    public void testExternalExtensionBinary() throws Throwable {
+        String title = mTestUtil.loadAssetFileAndWaitForTitle("echo_binary_java.html");
         mTestCase.assertEquals("Pass", title);
     }
 

@@ -4,13 +4,18 @@
 
 #include "xwalk/runtime/browser/runtime_network_delegate.h"
 
+#include "content/public/browser/browser_thread.h"
+#include "content/public/browser/resource_request_info.h"
 #include "net/base/net_errors.h"
 #include "net/base/static_cookie_policy.h"
 #include "net/url_request/url_request.h"
 
 #if defined(OS_ANDROID)
+#include "xwalk/runtime/browser/android/xwalk_contents_io_thread_client.h"
 #include "xwalk/runtime/browser/android/xwalk_cookie_access_policy.h"
 #endif
+
+using content::BrowserThread;
 
 namespace xwalk {
 
@@ -27,14 +32,14 @@ int RuntimeNetworkDelegate::OnBeforeURLRequest(
   return net::OK;
 }
 
-int RuntimeNetworkDelegate::OnBeforeSendHeaders(
+int RuntimeNetworkDelegate::OnBeforeStartTransaction(
     net::URLRequest* request,
     const net::CompletionCallback& callback,
     net::HttpRequestHeaders* headers) {
   return net::OK;
 }
 
-void RuntimeNetworkDelegate::OnSendHeaders(
+void RuntimeNetworkDelegate::OnStartTransaction(
     net::URLRequest* request,
     const net::HttpRequestHeaders& headers) {
 }
@@ -45,6 +50,19 @@ int RuntimeNetworkDelegate::OnHeadersReceived(
     const net::HttpResponseHeaders* original_response_headers,
     scoped_refptr<net::HttpResponseHeaders>* override_response_headers,
     GURL* allowed_unsafe_redirect_url) {
+#if defined(OS_ANDROID)
+  DCHECK_CURRENTLY_ON(BrowserThread::IO);
+  int render_process_id, render_frame_id;
+  if (content::ResourceRequestInfo::GetRenderFrameForRequest(
+      request, &render_process_id, &render_frame_id)) {
+    std::unique_ptr<XWalkContentsIoThreadClient> io_thread_client =
+        XWalkContentsIoThreadClient::FromID(render_process_id, render_frame_id);
+    if (io_thread_client.get()) {
+      io_thread_client->OnReceivedResponseHeaders(request,
+          original_response_headers);
+    }
+  }
+#endif
   return net::OK;
 }
 
@@ -55,8 +73,8 @@ void RuntimeNetworkDelegate::OnBeforeRedirect(net::URLRequest* request,
 void RuntimeNetworkDelegate::OnResponseStarted(net::URLRequest* request) {
 }
 
-void RuntimeNetworkDelegate::OnRawBytesRead(const net::URLRequest& request,
-                                            int bytes_read) {
+void RuntimeNetworkDelegate::OnNetworkBytesReceived(net::URLRequest* request,
+                                                    int64_t bytes_received) {
 }
 
 void RuntimeNetworkDelegate::OnCompleted(net::URLRequest* request,
@@ -105,11 +123,6 @@ bool RuntimeNetworkDelegate::OnCanSetCookie(const net::URLRequest& request,
 bool RuntimeNetworkDelegate::OnCanAccessFile(const net::URLRequest& request,
                                              const base::FilePath& path) const {
   return true;
-}
-
-bool RuntimeNetworkDelegate::OnCanThrottleRequest(
-    const net::URLRequest& request) const {
-  return false;
 }
 
 }  // namespace xwalk

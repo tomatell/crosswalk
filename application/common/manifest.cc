@@ -6,7 +6,6 @@
 
 #include <list>
 
-#include "base/basictypes.h"
 #include "base/lazy_instance.h"
 #include "base/logging.h"
 #include "base/strings/string_util.h"
@@ -24,11 +23,7 @@ namespace xwalk {
 namespace application {
 namespace {
 const char kLocaleUnlocalized[] = "@unlocalized";
-#if defined(OS_TIZEN)
-const char kLocaleAuto[] = "en-gb";
-#else
 const char kLocaleAuto[] = "en-us";
-#endif
 const char kLocaleFirstOne[] = "*";
 
 const char kWidgetNamePath[] = "widget.name";
@@ -41,14 +36,14 @@ typedef std::list<std::string> List;
 
 std::string GetLocalizedKey(const std::string& key,
                             const std::string& local) {
-  std::string lower_local = base::StringToLowerASCII(local);
+  std::string lower_local = base::ToLowerASCII(local);
   if (lower_local.empty())
     lower_local = kLocaleUnlocalized;
   return key + kPathConnectSymbol + lower_local;
 }
 
-scoped_ptr<List> ExpandUserAgentLocalesList(const scoped_ptr<List>& list) {
-  scoped_ptr<List> expansion_list(new List);
+std::unique_ptr<List> ExpandUserAgentLocalesList(const std::unique_ptr<List>& list) {
+  std::unique_ptr<List> expansion_list(new List);
   for (List::const_iterator it = list->begin(); it != list->end(); ++it) {
     std::string copy_locale(*it);
     size_t position;
@@ -58,13 +53,13 @@ scoped_ptr<List> ExpandUserAgentLocalesList(const scoped_ptr<List>& list) {
       copy_locale = copy_locale.substr(0, position);
     } while (position != std::string::npos);
   }
-  return expansion_list.Pass();
+  return expansion_list;
 }
 
 }  // namespace
 
-Manifest::Manifest(scoped_ptr<base::DictionaryValue> value, Type type)
-    : data_(value.Pass()),
+Manifest::Manifest(std::unique_ptr<base::DictionaryValue> value, Type type)
+    : data_(std::move(value)),
       i18n_data_(new base::DictionaryValue),
       type_(type) {
 
@@ -162,7 +157,7 @@ bool Manifest::GetList(
 
 Manifest* Manifest::DeepCopy() const {
   Manifest* manifest = new Manifest(
-      scoped_ptr<base::DictionaryValue>(data_->DeepCopy()),
+      std::unique_ptr<base::DictionaryValue>(data_->DeepCopy()),
       type());
   return manifest;
 }
@@ -180,7 +175,7 @@ bool Manifest::CanAccessKey(const std::string& key) const {
 }
 
 void Manifest::SetSystemLocale(const std::string& locale) {
-  scoped_ptr<List> list_for_expand(new List);
+  std::unique_ptr<List> list_for_expand(new List);
   list_for_expand->push_back(locale);
   list_for_expand->push_back(default_locale_);
   list_for_expand->push_back(kLocaleUnlocalized);
@@ -192,7 +187,7 @@ void Manifest::SetSystemLocale(const std::string& locale) {
 void Manifest::ParseWGTI18n() {
   data_->GetString(application_widget_keys::kDefaultLocaleKey,
                    &default_locale_);
-  default_locale_ = base::StringToLowerASCII(default_locale_);
+  default_locale_ = base::ToLowerASCII(default_locale_);
 
   ParseWGTI18nEachPath(kWidgetNamePath);
   ParseWGTI18nEachPath(kWidgetDecriptionPath);
@@ -229,9 +224,9 @@ void Manifest::ParseWGTI18nEachPath(const std::string& path) {
     bool get_first_one = false;
     for (base::ListValue::iterator it = list->begin();
         it != list->end(); ++it) {
-      ParseWGTI18nEachElement(*it, path);
+      ParseWGTI18nEachElement(it->get(), path);
       if (!get_first_one)
-        get_first_one = ParseWGTI18nEachElement(*it, path, kLocaleFirstOne);
+        get_first_one = ParseWGTI18nEachElement(it->get(), path, kLocaleFirstOne);
     }
   }
 }

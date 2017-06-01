@@ -5,7 +5,6 @@
 #include "xwalk/application/common/application_data.h"
 
 #include "base/base64.h"
-#include "base/basictypes.h"
 #include "base/command_line.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
@@ -28,7 +27,6 @@
 #include "xwalk/application/common/manifest_handler.h"
 #include "xwalk/application/common/manifest_handlers/permissions_handler.h"
 #include "xwalk/application/common/manifest_handlers/widget_handler.h"
-#include "xwalk/application/common/manifest_handlers/tizen_application_handler.h"
 #include "xwalk/application/common/permission_policy_manager.h"
 #include "content/public/common/url_constants.h"
 #include "url/url_util.h"
@@ -43,17 +41,19 @@ namespace application {
 
 // static
 scoped_refptr<ApplicationData> ApplicationData::Create(
-    const base::FilePath& path, const std::string& explicit_id,
-    SourceType source_type, scoped_ptr<Manifest> manifest,
+    const base::FilePath& path, const std::string& id,
+    SourceType source_type, std::unique_ptr<Manifest> manifest,
     std::string* error_message) {
   DCHECK(error_message);
+  DCHECK(IsValidApplicationID(id));
+
   base::string16 error;
   if (!manifest->ValidateManifest(error_message))
     return NULL;
 
   scoped_refptr<ApplicationData> app_data =
-      new ApplicationData(path, source_type, manifest.Pass());
-  if (!app_data->Init(explicit_id, &error)) {
+      new ApplicationData(path, id, source_type, std::move(manifest));
+  if (!app_data->Init(&error)) {
     *error_message = base::UTF16ToUTF8(error);
     return NULL;
   }
@@ -89,20 +89,6 @@ void ApplicationData::SetManifestData(const std::string& key,
   manifest_data_[key] = linked_ptr<ManifestData>(data);
 }
 
-#if defined(OS_TIZEN)
-void ApplicationData::set_bundle(const std::string& bundle) {
-  bundle_ = bundle;
-}
-
-std::string ApplicationData::GetPackageID() const {
-  return AppIdToPkgId(application_id_);
-}
-
-const std::string& ApplicationData::bundle() const {
-  return bundle_;
-}
-#endif
-
 const std::string ApplicationData::VersionString() const {
   if (!version_->components().empty())
     return Version()->GetString();
@@ -111,22 +97,17 @@ const std::string ApplicationData::VersionString() const {
 }
 
 bool ApplicationData::IsHostedApp() const {
-  bool hosted = source_type_ == EXTERNAL_URL;
-#if defined(OS_TIZEN)
-  if (manifest_->HasPath(widget_keys::kContentNamespace)) {
-    std::string ns;
-    if (manifest_->GetString(widget_keys::kContentNamespace, &ns) &&
-        ns == widget_keys::kTizenNamespacePrefix)
-      hosted = true;
-  }
-#endif
-  return hosted;
+  return source_type_ == EXTERNAL_URL;
 }
 
-ApplicationData::ApplicationData(const base::FilePath& path,
-  SourceType source_type, scoped_ptr<Manifest> manifest)
+ApplicationData::ApplicationData(
+    const base::FilePath& path,
+    const std::string& id,
+    SourceType source_type,
+    std::unique_ptr<Manifest> manifest)
     : manifest_version_(0),
       path_(path),
+      application_id_(id),
       manifest_(manifest.release()),
       finished_parsing_manifest_(false),
       source_type_(source_type) {
@@ -151,7 +132,8 @@ GURL ApplicationData::GetResourceURL(const GURL& application_url,
     path = relative_path.substr(1);
 
   GURL ret_val = GURL(application_url.spec() + path);
-  DCHECK(StartsWithASCII(ret_val.spec(), application_url.spec(), false));
+  DCHECK(base::StartsWith(ret_val.spec(), application_url.spec(),
+                          base::CompareCase::INSENSITIVE_ASCII));
 
   return ret_val;
 }
@@ -170,15 +152,11 @@ GURL ApplicationData::GetResourceURL(const std::string& relative_path) const {
   return GetResourceURL(URL(), relative_path);
 }
 
-bool ApplicationData::Init(const std::string& explicit_id,
-                           base::string16* error) {
+bool ApplicationData::Init(base::string16* error) {
   DCHECK(error);
   ManifestHandlerRegistry* registry =
       ManifestHandlerRegistry::GetInstance(manifest_type());
   if (!registry->ParseAppManifest(this, error))
-    return false;
-
-  if (!LoadID(explicit_id, error))
     return false;
   if (!LoadName(error))
     return false;
@@ -192,43 +170,6 @@ bool ApplicationData::Init(const std::string& explicit_id,
   application_url_ = ApplicationData::GetBaseURLFromApplicationId(ID());
 
   finished_parsing_manifest_ = true;
-  return true;
-}
-
-bool ApplicationData::LoadID(const std::string& explicit_id,
-                             base::string16* error) {
-  std::string application_id;
-#if defined(OS_TIZEN)
-  if (manifest_type() == Manifest::TYPE_WIDGET) {
-    const TizenApplicationInfo* tizen_app_info =
-        static_cast<TizenApplicationInfo*>(GetManifestData(
-            widget_keys::kTizenApplicationKey));
-    CHECK(tizen_app_info);
-    application_id = tizen_app_info->id();
-  } else if (manifest_->HasKey(keys::kTizenAppIdKey)) {
-    if (!manifest_->GetString(keys::kTizenAppIdKey, &application_id)) {
-      NOTREACHED() << "Could not get Tizen application key";
-      return false;
-    }
-  }
-
-  if (!application_id.empty()) {
-    application_id_ = application_id;
-    return true;
-  }
-#endif
-
-  if (!explicit_id.empty()) {
-    application_id_ = explicit_id;
-    return true;
-  }
-
-  application_id = GenerateIdForPath(path_);
-  if (application_id.empty()) {
-    NOTREACHED() << "Could not create ID from path.";
-    return false;
-  }
-  application_id_ = application_id;
   return true;
 }
 
@@ -420,14 +361,8 @@ PermissionSet ApplicationData::GetManifestPermissions() const {
 }
 
 bool ApplicationData::HasCSPDefined() const {
-#if defined(OS_TIZEN)
-  return  manifest_->HasPath(GetCSPKey(manifest_type())) ||
-          manifest_->HasPath(widget_keys::kCSPReportOnlyKey) ||
-          manifest_->HasPath(widget_keys::kAllowNavigationKey);
-#else
   return manifest_->HasPath(GetCSPKey(manifest_type())) ||
          manifest_->HasPath(keys::kScopeKey);
-#endif
 }
 
 bool ApplicationData::SetApplicationLocale(const std::string& locale,

@@ -30,6 +30,10 @@ class RuntimeUIDelegateDesktop: public DefaultRuntimeUIDelegate {
   void OnForwardPressed() override;
   void OnReloadPressed() override;
   void OnStopPressed() override;
+  void OnApplicationExitRequested() override;
+  bool AddDownloadItem(content::DownloadItem* download_item,
+      const content::DownloadTargetCallback& callback,
+      const base::FilePath& suggested_path) override;
 
  private:
   DISALLOW_COPY_AND_ASSIGN(RuntimeUIDelegateDesktop);

@@ -6,6 +6,7 @@
 package org.xwalk.core.xwview.test;
 
 import android.graphics.Bitmap;
+import android.net.http.SslError;
 import android.net.Uri;
 import android.util.Log;
 import android.view.KeyEvent;
@@ -25,26 +26,29 @@ import org.chromium.content.browser.test.util.TestCallbackHelperContainer.OnPage
 import org.chromium.content.browser.test.util.TestCallbackHelperContainer.OnPageStartedHelper;
 import org.chromium.content.browser.test.util.TestCallbackHelperContainer.OnReceivedErrorHelper;
 
+import org.xwalk.core.ClientCertRequest;
 import org.xwalk.core.XWalkUIClient.ConsoleMessageType;
 import org.xwalk.core.XWalkUIClient.LoadStatus;
 import org.xwalk.core.XWalkView;
+import org.xwalk.core.XWalkWebResourceRequest;
+import org.xwalk.core.XWalkWebResourceResponse;
 
 class TestHelperBridge {
 
     // Two new helper classes for testing new APIs.
     public class ShouldInterceptLoadRequestHelper extends CallbackHelper {
         private List<String> mShouldInterceptRequestUrls = new ArrayList<String>();
-        private ConcurrentHashMap<String, WebResourceResponse> mReturnValuesByUrls
-            = new ConcurrentHashMap<String, WebResourceResponse>();
+        private ConcurrentHashMap<String, XWalkWebResourceResponse> mReturnValuesByUrls
+            = new ConcurrentHashMap<String, XWalkWebResourceResponse>();
         // This is read from the IO thread, so needs to be marked volatile.
-        private volatile WebResourceResponse mResourceResponseReturnValue = null;
+        private volatile XWalkWebResourceResponse mResourceResponseReturnValue = null;
         private String mUrlToWaitFor;
 
-        void setReturnValue(WebResourceResponse value) {
+        void setReturnValue(XWalkWebResourceResponse value) {
             mResourceResponseReturnValue = value;
         }
 
-        void setReturnValueForUrl(String url, WebResourceResponse value) {
+        void setReturnValueForUrl(String url, XWalkWebResourceResponse value) {
             mReturnValuesByUrls.put(url, value);
         }
 
@@ -57,8 +61,8 @@ class TestHelperBridge {
             return mShouldInterceptRequestUrls;
         }
 
-        public WebResourceResponse getReturnValue(String url) {
-            WebResourceResponse value = mReturnValuesByUrls.get(url);
+        public XWalkWebResourceResponse getReturnValue(String url) {
+            XWalkWebResourceResponse value = mReturnValuesByUrls.get(url);
             if (value != null) return value;
             return mResourceResponseReturnValue;
         }
@@ -226,16 +230,26 @@ class TestHelperBridge {
     }
 
     public class OnScaleChangedHelper extends CallbackHelper {
-        private float mScale;
+        private float mPreviousScale;
+        private float mCurrentScale;
 
-        public float getScale() {
-            assert getCallCount() > 0;
-            return mScale;
+        public void notifyCalled(float oldScale, float newScale) {
+            mPreviousScale = oldScale;
+            mCurrentScale = newScale;
+            super.notifyCalled();
         }
 
-        public void notifyCalled(float scale) {
-            mScale = scale;
-            notifyCalled();
+        public float getOldScale() {
+            return mPreviousScale;
+        }
+
+        public float getNewScale() {
+            return mCurrentScale;
+        }
+
+        public float getLastScaleRatio() {
+            assert getCallCount() > 0;
+            return mCurrentScale / mPreviousScale;
         }
     }
 
@@ -254,6 +268,48 @@ class TestHelperBridge {
     }
 
     public class OnJavascriptModalDialogHelper extends CallbackHelper {
+        private String mMessage;
+
+        public String getMessage() {
+            assert getCallCount() > 0;
+            return mMessage;
+        }
+
+        public void notifyCalled(String message) {
+            mMessage = message;
+            notifyCalled();
+        }
+    }
+
+    public class OnJsAlertHelper extends CallbackHelper {
+        private String mMessage;
+
+        public String getMessage() {
+            assert getCallCount() > 0;
+            return mMessage;
+        }
+
+        public void notifyCalled(String message) {
+            mMessage = message;
+            notifyCalled();
+        }
+    }
+
+    public class OnJsConfirmHelper extends CallbackHelper {
+        private String mMessage;
+
+        public String getMessage() {
+            assert getCallCount() > 0;
+            return mMessage;
+        }
+
+        public void notifyCalled(String message) {
+            mMessage = message;
+            notifyCalled();
+        }
+    }
+
+    public class OnJsPromptHelper extends CallbackHelper {
         private String mMessage;
 
         public String getMessage() {
@@ -406,6 +462,56 @@ class TestHelperBridge {
         }
     }
 
+    public class OnReceivedClientCertRequestHelper extends CallbackHelper {
+        private ClientCertRequest mHandler;
+
+        public void notifyCalled(ClientCertRequest handler) {
+            mHandler = handler;
+            notifyCalled();
+        }
+
+        public ClientCertRequest getHandler() {
+            assert getCallCount() > 0;
+            return mHandler;
+        }
+    }
+
+    /**
+     * CallbackHelper for OnReceivedResponseHeaders.
+     */
+    public static class OnReceivedResponseHeadersHelper extends CallbackHelper {
+        private XWalkWebResourceRequest mRequest;
+        private XWalkWebResourceResponse mResponse;
+
+        public void notifyCalled(XWalkWebResourceRequest request, XWalkWebResourceResponse response) {
+            mRequest = request;
+            mResponse = response;
+            notifyCalled();
+        }
+        public XWalkWebResourceRequest getRequest() {
+            assert getCallCount() > 0;
+            return mRequest;
+        }
+        public XWalkWebResourceResponse getResponse() {
+            assert getCallCount() > 0;
+            return mResponse;
+        }
+    }
+
+    public class OnReceivedHttpAuthRequestHelper extends CallbackHelper {
+        private String mHost;
+
+        public String getHost() {
+            assert getCallCount() > 0;
+            return mHost;
+        }
+
+        public void notifyCalled(String host) {
+            mHost = host;
+            notifyCalled();
+        }
+    }
+
     private String mChangedTitle;
     private LoadStatus mLoadStatus;
     private final OnPageStartedHelper mOnPageStartedHelper;
@@ -423,6 +529,9 @@ class TestHelperBridge {
     private final OnScaleChangedHelper mOnScaleChangedHelper;
     private final OnRequestFocusHelper mOnRequestFocusHelper;
     private final OnJavascriptModalDialogHelper mOnJavascriptModalDialogHelper;
+    private final OnJsAlertHelper mOnJsAlertHelper;
+    private final OnJsConfirmHelper mOnJsConfirmHelper;
+    private final OnJsPromptHelper mOnJsPromptHelper;
     private final OpenFileChooserHelper mOpenFileChooserHelper;
     private final OnFullscreenToggledHelper mOnFullscreenToggledHelper;
     private final OverrideOrUnhandledKeyEventHelper mOverrideOrUnhandledKeyEventHelper;
@@ -432,6 +541,10 @@ class TestHelperBridge {
     private final OnReceivedIconHelper mOnReceivedIconHelper;
     private final OnLoadFinishedHelper mOnLoadFinishedHelper;
     private final OnDownloadStartHelper mOnDownloadStartHelper;
+    private final OnReceivedClientCertRequestHelper mOnReceivedClientCertRequestHelper;
+    private final OnReceivedResponseHeadersHelper mOnReceivedResponseHeadersHelper;
+    private final OnReceivedHttpAuthRequestHelper mOnReceivedHttpAuthRequestHelper;
+    private final CallbackHelper mOnReceivedSslErrorHelper;
 
     public TestHelperBridge() {
         mOnPageStartedHelper = new OnPageStartedHelper();
@@ -447,6 +560,9 @@ class TestHelperBridge {
         mOnScaleChangedHelper = new OnScaleChangedHelper();
         mOnRequestFocusHelper = new OnRequestFocusHelper();
         mOnJavascriptModalDialogHelper = new OnJavascriptModalDialogHelper();
+        mOnJsAlertHelper = new OnJsAlertHelper();
+        mOnJsConfirmHelper = new OnJsConfirmHelper();
+        mOnJsPromptHelper = new OnJsPromptHelper();
         mOpenFileChooserHelper = new OpenFileChooserHelper();
         mOnFullscreenToggledHelper = new OnFullscreenToggledHelper();
         mOverrideOrUnhandledKeyEventHelper = new OverrideOrUnhandledKeyEventHelper();
@@ -456,6 +572,10 @@ class TestHelperBridge {
         mOnReceivedIconHelper = new OnReceivedIconHelper();
         mOnLoadFinishedHelper = new OnLoadFinishedHelper();
         mOnDownloadStartHelper = new OnDownloadStartHelper();
+        mOnReceivedClientCertRequestHelper = new OnReceivedClientCertRequestHelper();
+        mOnReceivedResponseHeadersHelper = new OnReceivedResponseHeadersHelper();
+        mOnReceivedHttpAuthRequestHelper = new OnReceivedHttpAuthRequestHelper();
+        mOnReceivedSslErrorHelper = new CallbackHelper();
     }
 
     public OnPageStartedHelper getOnPageStartedHelper() {
@@ -518,6 +638,18 @@ class TestHelperBridge {
         return mOnJavascriptModalDialogHelper;
     }
 
+    public OnJsAlertHelper getOnJsAlertHelper() {
+        return mOnJsAlertHelper;
+    }
+
+    public OnJsConfirmHelper getOnJsConfirmHelper() {
+        return mOnJsConfirmHelper;
+    }
+
+    public OnJsPromptHelper getOnJsPromptHelper() {
+        return mOnJsPromptHelper;
+    }
+
     public OpenFileChooserHelper getOpenFileChooserHelper() {
         return mOpenFileChooserHelper;
     }
@@ -546,6 +678,22 @@ class TestHelperBridge {
         return mOnDownloadStartHelper;
     }
 
+    public OnReceivedClientCertRequestHelper getOnReceivedClientCertRequestHelper() {
+        return mOnReceivedClientCertRequestHelper;
+    }
+
+    public OnReceivedResponseHeadersHelper getOnReceivedResponseHeadersHelper() {
+        return mOnReceivedResponseHeadersHelper;
+    }
+
+    public OnReceivedHttpAuthRequestHelper getOnReceivedHttpAuthRequestHelper() {
+        return mOnReceivedHttpAuthRequestHelper;
+    }
+
+    public CallbackHelper getOnReceivedSslErrorHelper() {
+        return mOnReceivedSslErrorHelper;
+    }
+
     public void onTitleChanged(String title) {
         mChangedTitle = title;
         mOnTitleUpdatedHelper.notifyCalled(title);
@@ -572,8 +720,8 @@ class TestHelperBridge {
         mOnReceivedErrorHelper.notifyCalled(errorCode, description, failingUrl);
     }
 
-    public WebResourceResponse shouldInterceptLoadRequest(String url) {
-        WebResourceResponse response = mShouldInterceptLoadRequestHelper.getReturnValue(url);
+    public XWalkWebResourceResponse shouldInterceptLoadRequest(String url) {
+        XWalkWebResourceResponse response = mShouldInterceptLoadRequestHelper.getReturnValue(url);
         mShouldInterceptLoadRequestHelper.notifyCalled(url);
         return response;
     }
@@ -605,8 +753,8 @@ class TestHelperBridge {
         return returnValue;
     }
 
-    public void onScaleChanged(float scale) {
-        mOnScaleChangedHelper.notifyCalled(scale);
+    public void onScaleChanged(float oldScale, float newScale) {
+        mOnScaleChangedHelper.notifyCalled(oldScale, newScale);
     }
 
     public void onRequestFocus() {
@@ -615,6 +763,21 @@ class TestHelperBridge {
 
     public boolean onJavascriptModalDialog(String message) {
         mOnJavascriptModalDialogHelper.notifyCalled(message);
+        return true;
+    }
+
+    public boolean onJsAlert(String message) {
+        mOnJsAlertHelper.notifyCalled(message);
+        return true;
+    }
+
+    public boolean onJsConfirm(String message) {
+        mOnJsConfirmHelper.notifyCalled(message);
+        return true;
+    }
+
+    public boolean onJsPrompt(String message) {
+        mOnJsPromptHelper.notifyCalled(message);
         return true;
     }
 
@@ -641,5 +804,23 @@ class TestHelperBridge {
             String contentDisposition, String mimetype, long contentLength) {
         mOnDownloadStartHelper.notifyCalled(url, userAgent, contentDisposition,
                 mimetype, contentLength);
+    }
+
+    public void onReceivedClientCertRequest(XWalkView view, ClientCertRequest handler) {
+        mOnReceivedClientCertRequestHelper.notifyCalled(handler);
+    }
+
+    public void onReceivedResponseHeaders(XWalkView view,
+            XWalkWebResourceRequest request,
+            XWalkWebResourceResponse response) {
+        mOnReceivedResponseHeadersHelper.notifyCalled(request, response);
+    }
+
+    public void onReceivedHttpAuthRequest(String host) {
+        mOnReceivedHttpAuthRequestHelper.notifyCalled(host);
+    }
+
+    public void onReceivedSslError(ValueCallback<Boolean> callback, SslError error) {
+        mOnReceivedSslErrorHelper.notifyCalled();
     }
 }

@@ -16,7 +16,7 @@ class RuntimeResourceDispatcherHostDelegate
   ~RuntimeResourceDispatcherHostDelegate() override;
 
   static void ResourceDispatcherHostCreated();
-  static scoped_ptr<RuntimeResourceDispatcherHostDelegate> Create();
+  static std::unique_ptr<RuntimeResourceDispatcherHostDelegate> Create();
 
   void RequestBeginning(
       net::URLRequest* request,
@@ -29,17 +29,18 @@ class RuntimeResourceDispatcherHostDelegate
       content::ResourceContext* resource_context,
       int child_id,
       int route_id,
-      int request_id,
       bool is_content_initiated,
       bool must_download,
       ScopedVector<content::ResourceThrottle>* throttles) override;
   bool HandleExternalProtocol(
       const GURL& url,
       int child_id,
-      int route_id,
+      const content::ResourceRequestInfo::WebContentsGetter&
+          web_contents_getter,
       bool is_main_frame,
       ui::PageTransition page_transition,
-      bool has_user_gesture) override;
+      bool has_user_gesture,
+      content::ResourceContext* resource_context) override;
 
  private:
   DISALLOW_COPY_AND_ASSIGN(RuntimeResourceDispatcherHostDelegate);

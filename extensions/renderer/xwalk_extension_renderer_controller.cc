@@ -14,7 +14,6 @@
 #include "ipc/ipc_sync_channel.h"
 #include "third_party/WebKit/public/web/WebDocument.h"
 #include "third_party/WebKit/public/web/WebLocalFrame.h"
-#include "third_party/WebKit/public/web/WebScopedMicrotaskSuppression.h"
 #include "v8/include/v8.h"
 #include "xwalk/extensions/common/xwalk_extension_messages.h"
 #include "xwalk/extensions/common/xwalk_extension_switches.h"
@@ -24,10 +23,6 @@
 #include "xwalk/extensions/renderer/xwalk_module_system.h"
 #include "xwalk/extensions/renderer/xwalk_v8tools_module.h"
 
-#if defined(OS_TIZEN)
-#include "xwalk/application/common/constants.h"
-#endif
-
 namespace xwalk {
 namespace extensions {
 
@@ -35,7 +30,8 @@ const GURL kAboutBlankURL = GURL("about:blank");
 
 XWalkExtensionRendererController::XWalkExtensionRendererController(
     Delegate* delegate)
-    : shutdown_event_(false, false),
+    : shutdown_event_(base::WaitableEvent::ResetPolicy::AUTOMATIC,
+                      base::WaitableEvent::InitialState::NOT_SIGNALED),
       delegate_(delegate) {
   content::RenderThread* thread = content::RenderThread::Get();
   thread->AddObserver(this);
@@ -66,42 +62,24 @@ void CreateExtensionModules(XWalkExtensionClient* client,
     XWalkExtensionClient::ExtensionCodePoints* codepoint = it->second;
     if (codepoint->api.empty())
       continue;
-    scoped_ptr<XWalkExtensionModule> module(
+    std::unique_ptr<XWalkExtensionModule> module(
         new XWalkExtensionModule(client, module_system,
                                  it->first, codepoint->api));
-    module_system->RegisterExtensionModule(module.Pass(),
+    module_system->RegisterExtensionModule(std::move(module),
                                            codepoint->entry_points);
   }
 }
 
-#if defined(OS_TIZEN)
-void CreateExtensionModulesWithoutDeviceAPI(XWalkExtensionClient* client,
-                                            XWalkModuleSystem* module_system) {
-  const XWalkExtensionClient::ExtensionAPIMap& extensions =
-      client->extension_apis();
-  XWalkExtensionClient::ExtensionAPIMap::const_iterator it = extensions.begin();
-  for (; it != extensions.end(); ++it) {
-    XWalkExtensionClient::ExtensionCodePoints* codepoint = it->second;
-    if (codepoint->api.empty() || it->first.find("tizen") == 0)
-      continue;
-    scoped_ptr<XWalkExtensionModule> module(
-        new XWalkExtensionModule(client, module_system,
-                                 it->first, codepoint->api));
-    module_system->RegisterExtensionModule(module.Pass(),
-                                           codepoint->entry_points);
-  }
-}
-#endif
 }  // namespace
 
 void XWalkExtensionRendererController::DidCreateScriptContext(
     blink::WebLocalFrame* frame, v8::Handle<v8::Context> context) {
   XWalkModuleSystem* module_system = new XWalkModuleSystem(context);
   XWalkModuleSystem::SetModuleSystemInContext(
-      scoped_ptr<XWalkModuleSystem>(module_system), context);
+      std::unique_ptr<XWalkModuleSystem>(module_system), context);
 
   module_system->RegisterNativeModule(
-      "v8tools", scoped_ptr<XWalkNativeModule>(new XWalkV8ToolsModule));
+      "v8tools", std::unique_ptr<XWalkNativeModule>(new XWalkV8ToolsModule));
   module_system->RegisterNativeModule(
       "internal", CreateJSModuleFromResource(
           IDR_XWALK_EXTENSIONS_INTERNAL_API));
@@ -116,19 +94,8 @@ void XWalkExtensionRendererController::DidCreateScriptContext(
                          module_system);
 
   if (external_extensions_client_) {
-#if defined(OS_TIZEN)
-    // On Tizen platform, only local pages can access to device APIs.
-    GURL url = static_cast<GURL>(frame->document().url());
-    if (!url.SchemeIs(xwalk::application::kApplicationScheme) &&
-        !url.SchemeIsFile())
-      CreateExtensionModulesWithoutDeviceAPI(external_extensions_client_.get(),
-                                             module_system);
-    else
-      CreateExtensionModules(external_extensions_client_.get(), module_system);
-#else
     CreateExtensionModules(external_extensions_client_.get(),
                            module_system);
-#endif
   }
 
   module_system->Initialize();

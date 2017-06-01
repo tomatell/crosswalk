@@ -32,10 +32,6 @@
 #include "xwalk/test/base/xwalk_test_suite.h"
 #include "xwalk/test/base/xwalk_test_utils.h"
 
-#if defined(OS_TIZEN)
-#include "xwalk/runtime/renderer/tizen/xwalk_content_renderer_client_tizen.h"
-#endif
-
 using xwalk::Runtime;
 using xwalk::XWalkContentRendererClient;
 using xwalk::XWalkRunner;
@@ -44,27 +40,8 @@ using xwalk::NativeAppWindow;
 namespace {
 
 // Used when running in single-process mode.
-#if defined(OS_TIZEN)
-base::LazyInstance<xwalk::XWalkContentRendererClientTizen>::Leaky
-        g_xwalk_content_renderer_client = LAZY_INSTANCE_INITIALIZER;
-#else
 base::LazyInstance<XWalkContentRendererClient>::Leaky
         g_xwalk_content_renderer_client = LAZY_INSTANCE_INITIALIZER;
-#endif
-// Return a CommandLine object that is used to relaunch the browser_test
-// binary as a browser process.
-base::CommandLine GetCommandLineForRelaunch() {
-  base::CommandLine new_command_line(
-      base::CommandLine::ForCurrentProcess()->GetProgram());
-  base::CommandLine::SwitchMap switches =
-      base::CommandLine::ForCurrentProcess()->GetSwitches();
-  new_command_line.AppendSwitch(content::kLaunchAsBrowser);
-
-  for (auto iter = switches.begin(); iter != switches.end(); ++iter) {
-    new_command_line.AppendSwitchNative((*iter).first, (*iter).second);
-  }
-  return new_command_line;
-}
 
 }  // namespace
 
@@ -139,7 +116,10 @@ void InProcessBrowserTest::OnRuntimeClosed(Runtime* runtime) {
 
   if (runtimes_.empty())
     base::MessageLoop::current()->PostTask(
-        FROM_HERE, base::MessageLoop::QuitClosure());
+        FROM_HERE, base::MessageLoop::QuitWhenIdleClosure());
+}
+
+void InProcessBrowserTest::OnApplicationExitRequested(Runtime* runtime) {
 }
 
 void InProcessBrowserTest::CloseAll() {

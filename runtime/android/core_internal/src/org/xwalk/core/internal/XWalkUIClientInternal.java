@@ -8,16 +8,23 @@ import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.Context;
 import android.content.DialogInterface;
+import android.content.pm.ActivityInfo;
 import android.graphics.Bitmap;
 import android.net.Uri;
 import android.os.Build.VERSION;
 import android.os.Build.VERSION_CODES;
 import android.os.Message;
+import android.view.Gravity;
 import android.view.KeyEvent;
 import android.view.View;
+import android.view.ViewGroup;
+import android.view.Window;
 import android.view.WindowManager;
 import android.webkit.ValueCallback;
 import android.widget.EditText;
+import android.widget.FrameLayout;
+
+import org.chromium.base.ApiCompatibilityUtils;
 
 /**
  * This class notifies the embedder UI events/callbacks.
@@ -25,22 +32,19 @@ import android.widget.EditText;
 @XWalkAPI(createExternally = true)
 public class XWalkUIClientInternal {
 
-    // Strings for displaying Dialog.
-    private static String mJSAlertTitle;
-    private static String mJSConfirmTitle;
-    private static String mJSPromptTitle;
-    private static String mOKButton;
-    private static String mCancelButton;
-
     private Context mContext;
     private AlertDialog mDialog;
     private EditText mPromptText;
     private int mSystemUiFlag;
-    private View mDecorView;
     private XWalkViewInternal mXWalkView;
     private boolean mOriginalFullscreen;
     private boolean mOriginalForceNotFullscreen;
     private boolean mIsFullscreen = false;
+    private View mCustomXWalkView;
+    private final int INVALID_ORIENTATION = -2;
+    private int mPreOrientation = INVALID_ORIENTATION;
+    private CustomViewCallbackInternal mCustomViewCallback;
+    private XWalkContentsClient mContentsClient;
 
     /**
      * Initiator
@@ -60,23 +64,12 @@ public class XWalkUIClientInternal {
     @XWalkAPI
     public XWalkUIClientInternal(XWalkViewInternal view) {
         mContext = view.getContext();
-        mDecorView = view.getActivity().getWindow().getDecorView();
         if (VERSION.SDK_INT >= VERSION_CODES.KITKAT) {
             mSystemUiFlag = View.SYSTEM_UI_FLAG_LAYOUT_STABLE |
                     View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION |
                     View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN;
         }
         mXWalkView = view;
-        initResources();
-    }
-
-    private void initResources() {
-        if (mJSAlertTitle != null) return;
-        mJSAlertTitle = mContext.getString(R.string.js_alert_title);
-        mJSConfirmTitle = mContext.getString(R.string.js_confirm_title);
-        mJSPromptTitle = mContext.getString(R.string.js_prompt_title);
-        mOKButton = mContext.getString(android.R.string.ok);
-        mCancelButton = mContext.getString(android.R.string.cancel);
     }
 
     /**
@@ -91,6 +84,17 @@ public class XWalkUIClientInternal {
     public boolean onCreateWindowRequested(XWalkViewInternal view, InitiateByInternal initiator,
             ValueCallback<XWalkViewInternal> callback) {
         return false;
+    }
+
+    /**
+     * Called when the theme color is changed. This works only on Android Lollipop+(5.0+).
+     * @param color the new color in RGB format.
+     */
+    public void onDidChangeThemeColor(XWalkViewInternal view, int color) {
+        if (view == null || !(mContext instanceof Activity)) return;
+        Activity activity = (Activity) mContext;
+        ApiCompatibilityUtils.setStatusBarColor(activity.getWindow(),color);
+        ApiCompatibilityUtils.setTaskDescription(activity, null, null, color);
     }
 
     /**
@@ -131,9 +135,9 @@ public class XWalkUIClientInternal {
      */
     @XWalkAPI
     public void onJavascriptCloseWindow(XWalkViewInternal view) {
-        if (view != null && view.getActivity() != null) {
-            view.getActivity().finish();
-        }
+        if (view == null || !(mContext instanceof Activity)) return;
+        Activity activity = (Activity) mContext;
+        activity.finish();
     }
 
     /**
@@ -160,6 +164,7 @@ public class XWalkUIClientInternal {
      * @param message the message to be shown.
      * @param defaultValue the default value string. Only valid for Prompt dialog.
      * @param result the callback to handle the result from caller.
+     * @return true if the client will handle the dialog
      * @since 1.0
      */
     @XWalkAPI
@@ -190,7 +195,9 @@ public class XWalkUIClientInternal {
      */
     @XWalkAPI
     public void onFullscreenToggled(XWalkViewInternal view, boolean enterFullscreen) {
-        Activity activity = view.getActivity();
+        if (!(mContext instanceof Activity)) return;
+
+        Activity activity = (Activity) mContext;
         if (enterFullscreen) {
             if ((activity.getWindow().getAttributes().flags &
                     WindowManager.LayoutParams.FLAG_FORCE_NOT_FULLSCREEN) != 0) {
@@ -202,8 +209,9 @@ public class XWalkUIClientInternal {
             }
             if (!mIsFullscreen) {
                 if (VERSION.SDK_INT >= VERSION_CODES.KITKAT) {
-                    mSystemUiFlag = mDecorView.getSystemUiVisibility();
-                    mDecorView.setSystemUiVisibility(
+                    View decorView = activity.getWindow().getDecorView();
+                    mSystemUiFlag = decorView.getSystemUiVisibility();
+                    decorView.setSystemUiVisibility(
                             View.SYSTEM_UI_FLAG_LAYOUT_STABLE |
                             View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION |
                             View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN |
@@ -227,7 +235,7 @@ public class XWalkUIClientInternal {
                         WindowManager.LayoutParams.FLAG_FORCE_NOT_FULLSCREEN);
             }
             if (VERSION.SDK_INT >= VERSION_CODES.KITKAT) {
-                mDecorView.setSystemUiVisibility(mSystemUiFlag);
+                activity.getWindow().getDecorView().setSystemUiVisibility(mSystemUiFlag);
             } else {
                 // Clear the activity fullscreen flag.
                 if (!mOriginalFullscreen) {
@@ -387,14 +395,27 @@ public class XWalkUIClientInternal {
     public void onPageLoadStopped(XWalkViewInternal view, String url, LoadStatusInternal status) {
     }
 
-    private boolean onJsAlert(XWalkViewInternal view, String url, String message,
+    /**
+     * Tell the client to display an alert dialog to the user.
+     * WARN: Please DO NOT override this API and onJavascriptModalDialog API in the
+     *       same subclass to avoid unexpected behavior.
+     * @param view the owner XWalkViewInternal instance.
+     * @param url the url of the web page which wants to show this dialog.
+     * @param message the message to be shown.
+     * @param result the callback to handle the result from caller.
+     * @return Whether the client will handle the alert dialog.
+     * @since 6.0
+     */
+    @XWalkAPI
+    public boolean onJsAlert(XWalkViewInternal view, String url, String message,
             XWalkJavascriptResultInternal result) {
         final XWalkJavascriptResultInternal fResult = result;
         AlertDialog.Builder dialogBuilder = new AlertDialog.Builder(mContext);
-        dialogBuilder.setTitle(mJSAlertTitle)
+        dialogBuilder.setTitle(mContext.getString(R.string.js_alert_title))
                 .setMessage(message)
                 .setCancelable(true)
-                .setPositiveButton(mOKButton, new DialogInterface.OnClickListener() {
+                .setPositiveButton(mContext.getString(android.R.string.ok),
+                        new DialogInterface.OnClickListener() {
                     @Override
                     public void onClick(DialogInterface dialog, int which) {
                         fResult.confirm();
@@ -412,14 +433,27 @@ public class XWalkUIClientInternal {
         return false;
     }
 
-    private boolean onJsConfirm(XWalkViewInternal view, String url, String message,
+    /**
+     * Tell the client to display a confirm dialog to the user.
+     * WARN: Please DO NOT override this API and onJavascriptModalDialog API in the
+     *       same subclass to avoid unexpected behavior.
+     * @param view the owner XWalkViewInternal instance.
+     * @param url the url of the web page which wants to show this dialog.
+     * @param message the message to be shown.
+     * @param result the callback to handle the result from caller.
+     * @return Whether the client will handle the confirm dialog.
+     * @since 6.0
+     */
+    @XWalkAPI
+    public boolean onJsConfirm(XWalkViewInternal view, String url, String message,
             XWalkJavascriptResultInternal result) {
         final XWalkJavascriptResultInternal fResult = result;
         AlertDialog.Builder dialogBuilder = new AlertDialog.Builder(mContext);
-        dialogBuilder.setTitle(mJSConfirmTitle)
+        dialogBuilder.setTitle(mContext.getString(R.string.js_confirm_title))
                 .setMessage(message)
                 .setCancelable(true)
-                .setPositiveButton(mOKButton, new DialogInterface.OnClickListener() {
+                .setPositiveButton(mContext.getString(android.R.string.ok),
+                        new DialogInterface.OnClickListener() {
                     @Override
                     public void onClick(DialogInterface dialog, int which) {
                         fResult.confirm();
@@ -428,7 +462,8 @@ public class XWalkUIClientInternal {
                 })
                 // Need to implement 'onClick' and call the dialog.cancel. Otherwise, the
                 // UI will be locked.
-                .setNegativeButton(mCancelButton, new DialogInterface.OnClickListener() {
+                .setNegativeButton(mContext.getString(android.R.string.cancel),
+                        new DialogInterface.OnClickListener() {
                     @Override
                     public void onClick(DialogInterface dialog, int which) {
                         // This will call OnCancelLisitener.onCancel().
@@ -446,13 +481,27 @@ public class XWalkUIClientInternal {
         return false;
     }
 
-    private boolean onJsPrompt(XWalkViewInternal view, String url, String message,
+    /**
+     * Tell the client to display a prompt dialog to the user.
+     * WARN: Please DO NOT override this API and onJavascriptModalDialog API in the
+     *       same subclass to avoid unexpected behavior.
+     * @param view the owner XWalkViewInternal instance.
+     * @param url the url of the web page which wants to show this dialog.
+     * @param message the message to be shown.
+     * @param defaultValue the default value string. Only valid for Prompt dialog.
+     * @param result the callback to handle the result from caller.
+     * @return Whether the client will handle the prompt dialog.
+     * @since 6.0
+     */
+    @XWalkAPI
+    public boolean onJsPrompt(XWalkViewInternal view, String url, String message,
             String defaultValue, XWalkJavascriptResultInternal result) {
         final XWalkJavascriptResultInternal fResult = result;
         AlertDialog.Builder dialogBuilder = new AlertDialog.Builder(mContext);
-        dialogBuilder.setTitle(mJSPromptTitle)
+        dialogBuilder.setTitle(mContext.getString(R.string.js_prompt_title))
                 .setMessage(message)
-                .setPositiveButton(mOKButton, new DialogInterface.OnClickListener() {
+                .setPositiveButton(mContext.getString(android.R.string.ok),
+                        new DialogInterface.OnClickListener() {
                     @Override
                     public void onClick(DialogInterface dialog, int which) {
                         fResult.confirmWithResult(mPromptText.getText().toString());
@@ -461,7 +510,8 @@ public class XWalkUIClientInternal {
                 })
                 // Need to implement 'onClick' and call the dialog.cancel. Otherwise, the
                 // UI will be locked.
-                .setNegativeButton(mCancelButton, new DialogInterface.OnClickListener() {
+                .setNegativeButton(mContext.getString(android.R.string.cancel),
+                        new DialogInterface.OnClickListener() {
                     @Override
                     public void onClick(DialogInterface dialog, int which) {
                         // This will call OnCancelLisitener.onCancel().
@@ -483,5 +533,108 @@ public class XWalkUIClientInternal {
         mDialog = dialogBuilder.create();
         mDialog.show();
         return false;
+    }
+
+    void setContentsClient(XWalkContentsClient client) {
+        mContentsClient = client;
+    }
+
+    private Activity addContentView(View view, CustomViewCallbackInternal callback) {
+        Activity activity = null;
+        try {
+            Context context = mXWalkView.getContext();
+            if (context instanceof Activity) {
+                activity = (Activity) context;
+            }
+        } catch (ClassCastException e) {
+        }
+
+        if (mCustomXWalkView != null || activity == null) {
+            if (callback != null) callback.onCustomViewHidden();
+            return null;
+        }
+
+        mCustomXWalkView = view;
+        mCustomViewCallback = callback;
+        if (mContentsClient != null) {
+            mContentsClient.onToggleFullscreen(true);
+        }
+
+        // Add the video view to the activity's DecorView.
+        FrameLayout decor = (FrameLayout) activity.getWindow().getDecorView();
+        decor.addView(mCustomXWalkView, 0,
+                new FrameLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        Gravity.CENTER));
+        return activity;
+    }
+
+    /**
+     * Notify the host application that the current page would
+     * like to show a custom View.
+     * @param view is the View object to be shown.
+     * @param callback is the callback to be invoked if and when the view is dismissed.
+     * @since 7.0
+     */
+    @XWalkAPI
+    public void onShowCustomView(View view,
+            CustomViewCallbackInternal callback) {
+        addContentView(view, callback);
+    }
+
+    /**
+     * Notify the host application that the current page would
+     * like to show a custom View in a particular orientation.
+     * @param view is the View object to be shown.
+     * @param requestedOrientation An orientation constant as used in
+     * {@link ActivityInfo#screenOrientation ActivityInfo.screenOrientation}.
+     * @param callback is the callback to be invoked if and when the view is dismissed.
+     * @since 7.0
+     */
+    @XWalkAPI
+    public void onShowCustomView(View view,
+            int requestedOrientation, CustomViewCallbackInternal callback) {
+        Activity activity = addContentView(view, callback);
+        if (activity == null) return;
+
+        final int orientation = activity.getResources().getConfiguration().orientation;
+
+        if (requestedOrientation != orientation &&
+                requestedOrientation >= ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED &&
+                requestedOrientation <= ActivityInfo.SCREEN_ORIENTATION_LOCKED) {
+            mPreOrientation = orientation;
+            activity.setRequestedOrientation(requestedOrientation);
+        }
+    }
+
+    /**
+     * Notify the host application that the current page would
+     * like to hide its custom view.
+     * @since 7.0
+     */
+    @XWalkAPI
+    public void onHideCustomView() {
+        if (mCustomXWalkView == null || !(mXWalkView.getContext() instanceof Activity)) return;
+
+        if (mContentsClient != null) {
+            mContentsClient.onToggleFullscreen(false);
+        }
+
+        Activity activity = (Activity) mXWalkView.getContext();
+        // Remove video view from activity's ContentView.
+        FrameLayout decor = (FrameLayout) activity.getWindow().getDecorView();
+        decor.removeView(mCustomXWalkView);
+        if (mCustomViewCallback != null) mCustomViewCallback.onCustomViewHidden();
+
+        if (mPreOrientation != INVALID_ORIENTATION &&
+                mPreOrientation >= ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED &&
+                mPreOrientation <= ActivityInfo.SCREEN_ORIENTATION_LOCKED) {
+            activity.setRequestedOrientation(mPreOrientation);
+            mPreOrientation = INVALID_ORIENTATION;
+        }
+
+        mCustomXWalkView = null;
+        mCustomViewCallback = null;
     }
 }

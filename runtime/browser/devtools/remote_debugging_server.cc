@@ -7,6 +7,7 @@
 #include <map>
 #include <vector>
 
+#include "base/threading/thread_task_runner_handle.h"
 #include "components/devtools_http_handler/devtools_http_handler.h"
 #include "components/devtools_http_handler/devtools_http_handler_delegate.h"
 #include "content/public/browser/devtools_agent_host.h"
@@ -18,7 +19,6 @@
 #include "net/socket/tcp_server_socket.h"
 #include "ui/base/resource/resource_bundle.h"
 #include "ui/snapshot/snapshot.h"
-#include "xwalk/runtime/browser/devtools/xwalk_devtools_delegate.h"
 #include "xwalk/runtime/browser/xwalk_browser_context.h"
 #include "xwalk/runtime/common/xwalk_content_client.h"
 
@@ -41,11 +41,11 @@ class TCPServerSocketFactory
 
  private:
   // devtools_http_handler::DevToolsHttpHandler::ServerSocketFactory.
-  scoped_ptr<net::ServerSocket> CreateForHttpServer() override {
-    scoped_ptr<net::ServerSocket> socket(
+  std::unique_ptr<net::ServerSocket> CreateForHttpServer() override {
+    std::unique_ptr<net::ServerSocket> socket(
         new net::TCPServerSocket(NULL, net::NetLog::Source()));
     if (socket->ListenWithAddressAndPort(address_, port_, backlog_) != net::OK)
-      return scoped_ptr<net::ServerSocket>();
+      return std::unique_ptr<net::ServerSocket>();
     return socket;
   }
   std::string address_;
@@ -64,6 +64,8 @@ class XWalkDevToolsHttpHandlerDelegate :
   std::string GetDiscoveryPageHTML() override;
   std::string GetFrontendResource(const std::string& path) override;
   std::string GetPageThumbnailData(const GURL& url) override;
+  content::DevToolsExternalAgentProxyDelegate*
+      HandleWebSocketConnection(const std::string& path) override;
   void ProcessAndSaveThumbnail(const GURL& url,
                                scoped_refptr<base::RefCountedBytes> png);
 
@@ -121,6 +123,12 @@ std::string XWalkDevToolsHttpHandlerDelegate::GetPageThumbnailData(
   return std::string();
 }
 
+content::DevToolsExternalAgentProxyDelegate*
+XWalkDevToolsHttpHandlerDelegate::HandleWebSocketConnection(
+    const std::string& path) {
+  return nullptr;
+}
+
 void XWalkDevToolsHttpHandlerDelegate::ProcessAndSaveThumbnail(
     const GURL& url,
     scoped_refptr<base::RefCountedBytes> png) {
@@ -138,10 +146,10 @@ RemoteDebuggingServer::RemoteDebuggingServer(
     int port,
     const std::string& frontend_url) {
   base::FilePath output_dir;
-  scoped_ptr<devtools_http_handler::DevToolsHttpHandler::ServerSocketFactory>
+  std::unique_ptr<devtools_http_handler::DevToolsHttpHandler::ServerSocketFactory>
       factory(new TCPServerSocketFactory(ip, port, 1));
   devtools_http_handler_.reset(new devtools_http_handler::DevToolsHttpHandler(
-          factory.Pass(),
+          std::move(factory),
           frontend_url,
           new XWalkDevToolsHttpHandlerDelegate(),
           output_dir,

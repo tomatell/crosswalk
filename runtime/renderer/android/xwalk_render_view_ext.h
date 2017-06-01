@@ -5,10 +5,12 @@
 #ifndef XWALK_RUNTIME_RENDERER_ANDROID_XWALK_RENDER_VIEW_EXT_H_
 #define XWALK_RUNTIME_RENDERER_ANDROID_XWALK_RENDER_VIEW_EXT_H_
 
-#include "base/basictypes.h"
 #include "base/compiler_specific.h"
 #include "content/public/renderer/render_view_observer.h"
 #include "third_party/skia/include/core/SkColor.h"
+#include "ui/gfx/geometry/point_f.h"
+#include "ui/gfx/geometry/size_f.h"
+
 
 namespace blink {
 
@@ -35,11 +37,12 @@ class XWalkRenderViewExt : public content::RenderViewObserver {
   void DidCommitProvisionalLoad(blink::WebLocalFrame* frame,
                                 bool is_new_navigation) override;
   void FocusedNodeChanged(const blink::WebNode& node) override;
-  void DidCommitCompositorFrame() override;
+  void OnDestruct() override;
 
   void OnDocumentHasImagesRequest(int id);
 
-  void OnDoHitTest(int view_x, int view_y);
+  void OnDoHitTest(const gfx::PointF& touch_center,
+                   const gfx::SizeF& touch_area);
 
   void OnSetTextZoomLevel(double zoom_level);
 
@@ -47,11 +50,9 @@ class XWalkRenderViewExt : public content::RenderViewObserver {
 
   void OnSetInitialPageScale(double page_scale_factor);
 
-  void UpdatePageScaleFactor();
-
   void OnSetBackgroundColor(SkColor c);
 
-  float page_scale_factor_;
+  void OnSetTextZoomFactor(float zoom_factor);
 
   DISALLOW_COPY_AND_ASSIGN(XWalkRenderViewExt);
 };

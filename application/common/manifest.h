@@ -7,11 +7,11 @@
 
 #include <list>
 #include <map>
+#include <memory>
 #include <string>
 #include <set>
 #include <vector>
 
-#include "base/memory/scoped_ptr.h"
 #include "base/strings/string16.h"
 #include "base/values.h"
 
@@ -28,7 +28,7 @@ class Manifest {
   };
 
   explicit Manifest(
-      scoped_ptr<base::DictionaryValue> value, Type type = TYPE_MANIFEST);
+      std::unique_ptr<base::DictionaryValue> value, Type type = TYPE_MANIFEST);
   ~Manifest();
 
   // Returns false and |error| will be non-empty if the manifest is malformed.
@@ -53,7 +53,7 @@ class Manifest {
   // Application locale (locale get from system).                 | high
   // Default locale (defaultlocale attribute of widget element)
   // Unlocalized (the element without xml:lang attribute)
-  // Auto ("en-us"(tizen is "en-gb") will be considered as a default)
+  // Auto ("en-us" will be considered as a default)
   // First (the worst case we get the first element)              | low
   bool GetString(const std::string& path, std::string* out_value) const;
   bool GetString(const std::string& path, base::string16* out_value) const;
@@ -92,17 +92,12 @@ class Manifest {
   bool CanAccessPath(const std::string& path) const;
   bool CanAccessKey(const std::string& key) const;
 
-#if defined(OS_TIZEN)
-  // Unique package id for tizen platform
-  std::string package_id_;
-#endif
-
   // The underlying dictionary representation of the manifest.
-  scoped_ptr<base::DictionaryValue> data_;
-  scoped_ptr<base::DictionaryValue> i18n_data_;
+  std::unique_ptr<base::DictionaryValue> data_;
+  std::unique_ptr<base::DictionaryValue> i18n_data_;
 
   std::string default_locale_;
-  scoped_ptr<std::list<std::string> > user_agent_locales_;
+  std::unique_ptr<std::list<std::string> > user_agent_locales_;
 
   Type type_;
 

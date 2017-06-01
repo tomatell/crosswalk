@@ -27,10 +27,9 @@ class XWalkWebContentsDelegate
   void CloseContents(content::WebContents* source) override;
   void ActivateContents(content::WebContents* contents) override;
   void UpdatePreferredSize(content::WebContents* web_contents,
-                                   const gfx::Size& pref_size) override;
-  void RunFileChooser(
-      content::WebContents* web_contents,
-      const content::FileChooserParams& params) override;
+                           const gfx::Size& pref_size) override;
+  void RunFileChooser(content::RenderFrameHost* render_frame_host,
+                      const content::FileChooserParams& params) override;
   content::JavaScriptDialogManager* GetJavaScriptDialogManager(
       content::WebContents* web_contents) override;
 
@@ -43,9 +42,9 @@ class XWalkWebContentsDelegate
   void RendererResponsive(content::WebContents* source) override;
 
   bool AddMessageToConsole(content::WebContents* source,
-                           int32 level,
+                           int32_t level,
                            const base::string16& message,
-                           int32 line_no,
+                           int32_t line_no,
                            const base::string16& source_id) override;
   void HandleKeyboardEvent(
       content::WebContents* source,
@@ -61,16 +60,24 @@ class XWalkWebContentsDelegate
 
   bool ShouldCreateWebContents(
       content::WebContents* web_contents,
-      int route_id,
-      int main_frame_route_id,
+      int32_t route_id,
+      int32_t main_frame_route_id,
+      int32_t main_frame_widget_route_id,
       WindowContainerType window_container_type,
-      const base::string16& frame_name,
+      const std::string& frame_name,
       const GURL& target_url,
       const std::string& partition_id,
       content::SessionStorageNamespace* session_storage_namespace) override;
 
+  void FindReply(content::WebContents* web_contents,
+                 int request_id,
+                 int number_of_matches,
+                 const gfx::Rect& selection_rect,
+                 int active_match_ordinal,
+                 bool final_update) override;
+
  private:
-  scoped_ptr<content::JavaScriptDialogManager> javascript_dialog_manager_;
+  std::unique_ptr<content::JavaScriptDialogManager> javascript_dialog_manager_;
   DISALLOW_COPY_AND_ASSIGN(XWalkWebContentsDelegate);
 };
 
